@@ -263,6 +263,19 @@ const sb = supabase.createClient(window.__SUPABASE_URL__, window.__SUPABASE_KEY_
 let state = { accounts: [], goals: [], txs: [], filter: 'all', user: null };
 
 const money = n => (n < 0 ? '-$' : '$') + Math.abs(n).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+const CURRENCIES = { USD: { sym: '$', name: 'US Dollar' }, EUR: { sym: '\u20ac', name: 'Euro' }, GBP: { sym: '\u00a3', name: 'British Pound' } };
+const acctCur = a => (a && a.currency ? String(a.currency).toUpperCase() : 'USD');
+const curSym = c => (CURRENCIES[c] && CURRENCIES[c].sym) || (c ? c + ' ' : '$');
+const moneyC = (n, c) => (n < 0 ? '-' : '') + curSym(c) + Math.abs(n).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+const otherCurSums = () => {
+  const byCur = {};
+  for (const a of state.accounts) {
+    const c = acctCur(a);
+    if (c === 'USD') continue;
+    byCur[c] = (byCur[c] || 0) + acctBalance(a.id);
+  }
+  return Object.entries(byCur).filter(([, v]) => Math.abs(v) >= 0.005).map(([c, v]) => moneyC(v, c) + (CURRENCIES[c] ? '' : ' ' + c));
+};
 const today = () => new Date().toLocaleDateString('en-CA');
 const fmtDate = d => new Date(d + 'T12:00:00').toLocaleDateString('en-US', {month: 'short', day: 'numeric'});
 
@@ -329,15 +342,19 @@ const goalSaved = id => state.txs.filter(t => t.goal_id === id && t.kind === 'sa
 /* ---------- render ---------- */
 function renderAll() { renderHome(); renderTotal(); renderGoals(); renderIncome(); renderActivity(); }
 function renderHome() {
-  const totalAvail = state.accounts.reduce((s, a) => s + acctBalance(a.id), 0);
+  const usdAccts = state.accounts.filter(a => acctCur(a) === 'USD');
+  const totalAvail = usdAccts.reduce((s, a) => s + acctBalance(a.id), 0);
   const totalGoals = state.goals.reduce((s, g) => s + goalSaved(g.id), 0);
   $('totalBal').textContent = money(totalAvail + totalGoals);
-  $('totalSub2').textContent = `${money(totalAvail)} available · ${money(totalGoals)} saved in goals`;
+  const others = otherCurSums();
+  $('totalSub2').textContent = `${money(totalAvail)} available · ${money(totalGoals)} saved in goals` + (others.length ? ` · plus ${others.join(', ')} in other currencies` : '');
   const month = new Date().toISOString().slice(0, 7);
   let ein = 0, eout = 0;
   for (const t of state.txs) {
     if (!t.occurred_on.startsWith(month)) continue;
     if (t.kind === 'transfer') continue;
+    const ta = state.accounts.find(x => x.id === t.account_id);
+    if (acctCur(ta) !== 'USD') continue;
     if (t.kind === 'earning') ein += Number(t.amount);
     if (t.kind === 'spending') eout += Number(t.amount);
   }
@@ -348,7 +365,7 @@ function renderHome() {
     const bal = acctBalance(a.id);
     const d = document.createElement('div');
     d.className = 'acct-card';
-    d.innerHTML = `<div class="icon">${a.icon || '🏦'}</div><div class="name"></div><div class="bal ${bal < 0 ? 'neg' : ''}">${money(bal)}</div><div class="avail">available</div>`;
+    d.innerHTML = `<div class="icon">${a.icon || '🏦'}</div><div class="name"></div><div class="bal ${bal < 0 ? 'neg' : ''}">${moneyC(bal, acctCur(a))}</div><div class="avail">available${acctCur(a) !== 'USD' ? ' · ' + acctCur(a) : ''}</div>`;
     d.querySelector('.name').textContent = a.name;
     d.onclick = () => openAccountSheet(a);
     $('acctRow').appendChild(d);
@@ -358,15 +375,17 @@ function renderHome() {
   recent.forEach(t => $('recentTx').appendChild(txRow(t)));
 }
 function renderTotal() {
-  const totalAvail = state.accounts.reduce((s, a) => s + acctBalance(a.id), 0);
+  const usdAccts = state.accounts.filter(a => acctCur(a) === 'USD');
+  const otherAccts = state.accounts.filter(a => acctCur(a) !== 'USD');
+  const totalAvail = usdAccts.reduce((s, a) => s + acctBalance(a.id), 0);
   const totalGoals = state.goals.reduce((s, g) => s + goalSaved(g.id), 0);
   const total = totalAvail + totalGoals;
   $('grandTotal').textContent = money(total);
-  $('grandSub').textContent = `${money(totalAvail)} in accounts · ${money(totalGoals)} saved in goals`;
+  $('grandSub').textContent = `${money(totalAvail)} in accounts · ${money(totalGoals)} saved in goals` + (otherAccts.length ? ' · US dollars only - other currencies below' : '');
 
   const ac = $('totalAccts');
   ac.innerHTML = state.accounts.length ? '' : '<div class="empty">No accounts yet.</div>';
-  for (const a of state.accounts) {
+  for (const a of usdAccts) {
     const bal = acctBalance(a.id);
     const d = document.createElement('div');
     d.className = 'src-row';
@@ -379,6 +398,21 @@ function renderTotal() {
     d.className = 'src-row';
     d.innerHTML = `<div class="s-ic">🎯</div><div class="s-name" style="color:var(--dim)">Saved in goals</div><div class="s-amt blue">${money(totalGoals)}</div>`;
     ac.appendChild(d);
+  }
+  if (otherAccts.length) {
+    const h = document.createElement('div');
+    h.className = 'total-note';
+    h.style.margin = '14px 2px 8px';
+    h.textContent = 'Other currencies - kept separate, not added into your dollar total:';
+    ac.appendChild(h);
+    for (const a of otherAccts) {
+      const bal = acctBalance(a.id);
+      const d = document.createElement('div');
+      d.className = 'src-row';
+      d.innerHTML = `<div class="s-ic">${a.icon || '🏦'}</div><div class="s-name"></div><div class="s-count">${acctCur(a)}</div><div class="s-amt" style="color:${bal < 0 ? 'var(--red)' : 'var(--text)'}">${moneyC(bal, acctCur(a))}</div>`;
+      d.querySelector('.s-name').textContent = a.name;
+      ac.appendChild(d);
+    }
   }
 
   const af = $('affordList');
@@ -455,15 +489,17 @@ function displayTxs() {
 }
 function renderIncome() {
   const earn = state.txs.filter(t => t.kind === 'earning');
+  const curOf = t => acctCur(state.accounts.find(x => x.id === t.account_id));
   const month = new Date().toISOString().slice(0, 7);
-  const total = earn.reduce((s, t) => s + Number(t.amount), 0);
-  const mTotal = earn.filter(t => t.occurred_on.startsWith(month)).reduce((s, t) => s + Number(t.amount), 0);
+  const total = earn.filter(t => curOf(t) === 'USD').reduce((s, t) => s + Number(t.amount), 0);
+  const mTotal = earn.filter(t => curOf(t) === 'USD' && t.occurred_on.startsWith(month)).reduce((s, t) => s + Number(t.amount), 0);
   $('incomeTotal').textContent = money(total);
-  $('incomeSub').textContent = `${money(mTotal)} earned this month`;
+  $('incomeSub').textContent = `${money(mTotal)} earned this month (US dollars)`;
   const bySrc = {};
   for (const t of earn) {
-    const k = t.category || 'Other';
-    (bySrc[k] ||= { total: 0, count: 0 });
+    const c = curOf(t);
+    const k = (t.category || 'Other') + (c !== 'USD' ? ' (' + c + ')' : '');
+    (bySrc[k] ||= { total: 0, count: 0, cur: c });
     bySrc[k].total += Number(t.amount); bySrc[k].count++;
   }
   const srcs = Object.entries(bySrc).sort((a, b) => b[1].total - a[1].total);
@@ -471,7 +507,7 @@ function renderIncome() {
   for (const [name, v] of srcs) {
     const d = document.createElement('div');
     d.className = 'src-row';
-    d.innerHTML = `<div class="s-name"></div><div class="s-count">${v.count}x</div><div class="s-amt">${money(v.total)}</div>`;
+    d.innerHTML = `<div class="s-name"></div><div class="s-count">${v.count}x</div><div class="s-amt">${moneyC(v.total, v.cur)}</div>`;
     d.querySelector('.s-name').textContent = name;
     $('incomeSources').appendChild(d);
   }
@@ -487,6 +523,7 @@ function txRow(t) {
   const a = state.accounts.find(x => x.id === t.account_id);
   const g = state.goals.find(x => x.id === t.goal_id);
   const toA = t.to_account_id ? state.accounts.find(x => x.id === t.to_account_id) : null;
+  const cur = acctCur(a);
   const icons = { earning: '↓', spending: '↑', saving: '🎯', transfer: '⇄' };
   const isTransfer = t.kind === 'transfer';
   const d = document.createElement('div');
@@ -499,7 +536,7 @@ function txRow(t) {
         ? fmtDate(t.occurred_on) + ' · ' + (a ? a.name : 'Deleted account') + (toA ? ' → ' + toA.name : '')
         : fmtDate(t.occurred_on) + ' · ' + (a ? a.name : 'Deleted account') + (g ? ' → ' + g.name : '') + ' · ' + (t.category || 'Other')}</div>
     </div>
-    <div class="amt ${t.kind}">${isTransfer ? '' : t.kind === 'earning' ? '+' : '-'}${money(t.amount)}</div>
+    <div class="amt ${t.kind}">${isTransfer ? '' : t.kind === 'earning' ? '+' : '-'}${moneyC(t.amount, cur)}</div>
     <button class="del" title="Delete">×</button>`;
   d.querySelector('.t1').textContent = t.note || (isTransfer ? 'Transfer' : t.kind === 'saving' ? 'Saved to goal' : t.category || 'Entry');
   d.querySelector('.del').onclick = async () => {
@@ -545,8 +582,8 @@ function openEntrySheet(kind = 'spending', goalId = null) {
       <button data-k="saving">Save to goal</button>
       <button data-k="transfer">Transfer</button>
     </div>
-    <div class="field" id="amtField"><div class="amt-input"><span>$</span><input id="fAmt" type="number" inputmode="decimal" min="0" step="0.01" placeholder="0.00"></div></div>
-    <div class="field"><label id="fAcctLabel">Account</label><select id="fAcct">${state.accounts.map(a => `<option value="${a.id}">${esc(a.name)}</option>`).join('')}</select></div>
+    <div class="field" id="amtField"><div class="amt-input"><span class="cur-sym">$</span><input id="fAmt" type="number" inputmode="decimal" min="0" step="0.01" placeholder="0.00"></div></div>
+    <div class="field"><label id="fAcctLabel">Account</label><select id="fAcct">${state.accounts.map(a => `<option value="${a.id}">${esc(a.name)} (${acctCur(a)})</option>`).join('')}</select></div>
     <div class="field hidden" id="goalField"><label>Goal</label><select id="fGoal">${state.goals.map(g => `<option value="${g.id}">${esc(g.name)}</option>`).join('')}</select></div>
     <div class="field" id="catField"><label id="catLabel">Category</label><div class="chips" id="catChips"></div><input id="fSource" class="hidden" style="margin-top:8px" placeholder="Or type a source - job, grades, a project..."></div>
     <div class="field hidden" id="destField">
@@ -588,13 +625,13 @@ function openEntrySheet(kind = 'spending', goalId = null) {
     });
   }
   function destOptions() {
-    return state.accounts.map(a => `<option value="acct:${a.id}">${esc(a.name)}</option>`).join('') +
+    return state.accounts.map(a => `<option value="acct:${a.id}">${esc(a.name)} (${acctCur(a)})</option>`).join('') +
       state.goals.map(g => `<option value="goal:${g.id}">🎯 ${esc(g.name)}</option>`).join('');
   }
   function addDestRow() {
     const row = document.createElement('div');
     row.className = 'dest-row';
-    row.innerHTML = `<select>${destOptions()}</select><div class="amt-wrap"><span>$</span><input type="number" inputmode="decimal" min="0" step="0.01" placeholder="0.00"></div><button class="x">×</button>`;
+    row.innerHTML = `<select>${destOptions()}</select><div class="amt-wrap"><span class="cur-sym">$</span><input type="number" inputmode="decimal" min="0" step="0.01" placeholder="0.00"></div><button class="x">×</button>`;
     row.querySelector('.x').onclick = () => { row.remove(); updDestTotal(); };
     row.querySelector('input').addEventListener('input', updDestTotal);
     bg.querySelector('#destRows').appendChild(row);
@@ -606,8 +643,14 @@ function openEntrySheet(kind = 'spending', goalId = null) {
     bg.querySelector('#destTotal').textContent = sum > 0 ? `Total moving: ${money(sum)}` : '';
   }
   bg.querySelector('#destAdd').onclick = addDestRow;
+  const selCur = () => acctCur(state.accounts.find(a => a.id === bg.querySelector('#fAcct').value));
+  function updCurSym() {
+    const s = curSym(selCur());
+    bg.querySelectorAll('.cur-sym').forEach(el => { el.textContent = s; });
+  }
+  bg.querySelector('#fAcct').addEventListener('change', updCurSym);
   bg.querySelectorAll('#kindSeg button').forEach(b => b.onclick = () => setKind(b.dataset.k));
-  setKind(kind);
+  setKind(kind); updCurSym();
   if (goalId) bg.querySelector('#fGoal').value = goalId;
   if (kind !== 'transfer') bg.querySelector('#fAmt').focus();
   bg.querySelector('#fSave').onclick = async () => {
@@ -619,12 +662,15 @@ function openEntrySheet(kind = 'spending', goalId = null) {
       let bad = null;
       const dests = [...bg.querySelectorAll('#destRows .dest-row')];
       if (!dests.length) bad = 'Add a destination';
+      const fromCur = acctCur(state.accounts.find(a => a.id === from));
       for (const r of dests) {
         const sel = r.querySelector('select').value;
         const amt = parseFloat(r.querySelector('input').value);
         if (!amt || amt <= 0) { bad = 'Every destination needs an amount'; break; }
         const [type, id] = sel.split(':');
         if (type === 'acct' && id === from) { bad = "Can't move money into the same account"; break; }
+        if (type === 'acct' && acctCur(state.accounts.find(a => a.id === id)) !== fromCur) { bad = "Can't move between different currencies - no exchange rate, so convert it yourself first"; break; }
+        if (type === 'goal' && fromCur !== 'USD') { bad = 'Goals are in dollars - save from a dollar account'; break; }
         if (type === 'goal') {
           rows.push({ account_id: from, amount: amt, kind: 'saving', category: 'Goal deposit', goal_id: id, note, occurred_on: on });
         } else {
@@ -641,6 +687,7 @@ function openEntrySheet(kind = 'spending', goalId = null) {
     }
     const amt = parseFloat(bg.querySelector('#fAmt').value);
     if (!amt || amt <= 0) { bg.querySelector('#fErr').textContent = 'Enter an amount'; return; }
+    if (curKind === 'saving' && selCur() !== 'USD') { bg.querySelector('#fErr').textContent = 'Goals are in dollars - save from a dollar account'; return; }
     const srcText = curKind === 'earning' ? bg.querySelector('#fSource').value.trim() : '';
     const row = {
       account_id: bg.querySelector('#fAcct').value,
@@ -659,17 +706,33 @@ function openEntrySheet(kind = 'spending', goalId = null) {
   };
 }
 function openAccountSheet(a = null) {
-  const icons = ['🏦', '💸', '📱', '🍎', '💳', '🐷', '🪙', '💵'];
+  const icons = ['🏦', '💸', '📱', '🍎', '💳', '🐷', '🪙', '💵', '💶', '💷'];
+  const curPreset = ['USD', 'EUR', 'GBP'];
+  const cur0 = acctCur(a);
+  const curIsPreset = curPreset.includes(cur0);
   const bg = openSheet(`
     <h3>${a ? 'Edit account' : 'Add account'}</h3>
-    <div class="field"><label>Name</label><input id="aName" placeholder="Bank of America, Cash App…" value="${a ? esc(a.name) : ''}"></div>
+    <div class="field"><label>Name</label><input id="aName" placeholder="Bank of America, Cash App, Cash…" value="${a ? esc(a.name) : ''}"></div>
+    <div class="field"><label>Currency</label><div class="chips" id="aCur">${curPreset.map((c, x) => `<button data-c="${c}" class="${(a ? c === cur0 && curIsPreset : x === 0) ? 'sel' : ''}">${CURRENCIES[c].sym} ${c}</button>`).join('')}</div></div>
+    <div class="field"><label>Or type another currency code</label><input id="aCurCustom" placeholder="e.g. CAD, JPY, MXN - overrides the pick above" maxlength="6" value="${a && !curIsPreset ? esc(cur0) : ''}"></div>
     <div class="field"><label>Icon</label><div class="chips" id="aIcons">${icons.map((i, x) => `<button data-i="${i}" class="${a && a.icon === i || (!a && x === 0) ? 'sel' : ''}">${i}</button>`).join('')}</div></div>
     <div class="field"><label>Or type your own emoji</label><input id="aCustom" placeholder="Any emoji - overrides the pick above" value="${a && !icons.includes(a.icon) ? esc(a.icon) : ''}"></div>
-    <div class="field"><label>${a ? 'Starting balance' : 'Current balance'}</label><div class="amt-input"><span>$</span><input id="aBal" type="number" inputmode="decimal" step="0.01" value="${a ? Number(a.starting_balance) : ''}" placeholder="0.00"></div></div>
+    <div class="field"><label>${a ? 'Starting balance' : 'Current balance'}</label><div class="amt-input"><span id="aBalSym">${curSym(cur0)}</span><input id="aBal" type="number" inputmode="decimal" step="0.01" value="${a ? Number(a.starting_balance) : ''}" placeholder="0.00"></div></div>
     <button class="btn btn-primary" id="aSave">${a ? 'Save changes' : 'Add account'}</button>
     ${a ? '<button class="btn" id="aDel" style="color:var(--red); margin-top:6px">Delete account</button>' : ''}
     <div class="err" id="aErr"></div>`);
   let icon = a ? a.icon : icons[0];
+  let cur = a && curIsPreset ? cur0 : 'USD';
+  bg.querySelectorAll('#aCur button').forEach(b => b.onclick = () => {
+    cur = b.dataset.c;
+    bg.querySelector('#aCurCustom').value = '';
+    bg.querySelector('#aBalSym').textContent = curSym(cur);
+    bg.querySelectorAll('#aCur button').forEach(x => x.classList.toggle('sel', x === b));
+  });
+  bg.querySelector('#aCurCustom').addEventListener('input', () => {
+    const v = bg.querySelector('#aCurCustom').value.trim().toUpperCase();
+    if (v) { bg.querySelectorAll('#aCur button').forEach(x => x.classList.remove('sel')); bg.querySelector('#aBalSym').textContent = curSym(v); }
+  });
   bg.querySelectorAll('#aIcons button').forEach(b => b.onclick = () => {
     icon = b.dataset.i;
     bg.querySelector('#aCustom').value = '';
@@ -683,9 +746,12 @@ function openAccountSheet(a = null) {
     if (!name) { bg.querySelector('#aErr').textContent = 'Give it a name'; return; }
     const bal = parseFloat(bg.querySelector('#aBal').value) || 0;
     const ic = firstEmoji(bg.querySelector('#aCustom').value) || icon;
+    const custom = bg.querySelector('#aCurCustom').value.trim().toUpperCase();
+    const currency = custom || cur;
+    if (!/^[A-Z]{3,6}$/.test(currency)) { bg.querySelector('#aErr').textContent = 'Currency code must be 3-6 letters, like EUR'; return; }
     let error;
-    if (a) ({ error } = await sb.from('money_accounts').update({ name, icon: ic, starting_balance: bal }).eq('id', a.id));
-    else ({ error } = await sb.from('money_accounts').insert({ name, icon: ic, starting_balance: bal, sort_order: state.accounts.length }));
+    if (a) ({ error } = await sb.from('money_accounts').update({ name, icon: ic, starting_balance: bal, currency }).eq('id', a.id));
+    else ({ error } = await sb.from('money_accounts').insert({ name, icon: ic, starting_balance: bal, currency, sort_order: state.accounts.length }));
     if (error) { bg.querySelector('#aErr').textContent = error.message; return; }
     bg.remove(); toast(a ? 'Account updated' : 'Account added'); loadAll();
   };
