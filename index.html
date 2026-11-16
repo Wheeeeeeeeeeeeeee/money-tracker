@@ -315,6 +315,8 @@
     </div>
     <div class="section-head"><h2>Accounts</h2><button id="addAcctBtn">+ Add</button></div>
     <div class="acct-row" id="acctRow"></div>
+    <div class="section-head"><h2>Subscriptions</h2><button id="addSubBtn">+ Add</button></div>
+    <div class="total-note" style="margin-bottom:10px">Manual reminders only. These do not charge money or create transactions.</div><div id="subscriptionSummary"></div><div id="subscriptionList"></div>
     <div class="section-head"><h2>Recent activity</h2></div>
     <div class="tx-list" id="recentTx"></div>
   </div>
@@ -382,7 +384,7 @@
 const $ = id => document.getElementById(id);
 const sb = supabase.createClient(window.__SUPABASE_URL__, window.__SUPABASE_KEY__);
 
-let state = { accounts: [], goals: [], items: [], txs: [], filter: 'all', user: null };
+let state = { accounts: [], goals: [], items: [], txs: [], filter: 'all', subscriptions: [], user: null };
 let goalCatFilter = [];
 const GOAL_CATEGORY_PRESETS = ['Tech', 'Amazon', 'Apple', 'Figures', 'Family'];
 const goalCats = g => (g.categories || []);
@@ -478,6 +480,8 @@ async function loadAll() {
   state.accounts = a.data; state.goals = g.data; state.txs = t.data;
   const it = await sb.from('money_goal_items').select('*').order('created_at');
   state.items = it.error ? [] : it.data;
+  const subs = await sb.from('money_subscriptions').select('*').order('next_due');
+  state.subscriptions = subs.error ? [] : subs.data;
   renderAll();
 }
 const acctBalance = id => {
@@ -494,7 +498,45 @@ const acctMin = a => (a && a.minimum_balance != null) ? Number(a.minimum_balance
 const acctUsable = a => acctBalance(a.id) - (acctMin(a) || 0);
 
 /* ---------- render ---------- */
-function renderAll() { renderHome(); renderTotal(); renderGoals(); renderIncome(); renderActivity(); }
+function renderAll() { renderSubscriptions(); renderHome(); renderTotal(); renderGoals(); renderIncome(); renderActivity(); }
+function renderSubscriptions() {
+  const sums = {};
+  for (const sub of state.subscriptions) {
+    const monthly = Number(sub.amount) * ({weekly:52/12,monthly:1,quarterly:1/3,yearly:1/12}[sub.cycle] || 1);
+    sums[sub.currency] = (sums[sub.currency] || 0) + monthly;
+  }
+  $('subscriptionSummary').textContent = Object.entries(sums).map(([cur,amt]) => moneyC(amt,cur) + '/month average').join(' · ');
+  $('subscriptionSummary').style.cssText = 'color:var(--dim);font-size:13px;margin-bottom:10px';
+  const box = $('subscriptionList');
+  box.innerHTML = state.subscriptions.length ? '' : '<div class="empty">No subscriptions added. Add only the recurring charges you want to track.</div>';
+  for (const sub of state.subscriptions) {
+    const row = document.createElement('div'); row.className='src-row';
+    row.innerHTML = `<div class="s-name">${esc(sub.name)}<div class="s-count">${esc(sub.cycle)} · ${sub.next_due < today() ? 'Past due: ' : 'Next: '}${fmtDate(sub.next_due)}</div></div><div class="s-amt">${moneyC(Number(sub.amount),sub.currency)}</div>`;
+    row.onclick = () => openSubscription(sub); box.appendChild(row);
+  }
+}
+function openSubscription(sub = null) {
+  const editing = !sub || editMode();
+  if (!editing) {
+    const bg = openSheet(`<h3>${esc(sub.name)}</h3><div class="ainfo"><div class="ainfo-row"><span>Amount</span><b>${moneyC(Number(sub.amount),sub.currency)}</b></div><div class="ainfo-row"><span>Repeats</span><b>${esc(sub.cycle)}</b></div><div class="ainfo-row"><span>Next payment</span><b>${fmtDate(sub.next_due)}</b></div>${sub.notes ? `<p style="padding:12px 0">${esc(sub.notes)}</p>` : ''}</div><p class="acct-note">Manual reminder, not an automatic charge. Turn on Edit to update the next date after payment.</p><button class="btn btn-cancel" id="subClose">Close</button>`);
+    bg.querySelector('#subClose').onclick=()=>bg.remove(); return;
+  }
+  const bg = openSheet(`<h3>${sub ? 'Edit subscription' : 'Add subscription'}</h3>
+    <div class="field"><label>Name</label><input id="subName" value="${esc(sub?.name || '')}" placeholder="Subscription name"></div>
+    <div class="row2"><div class="field"><label>Amount per payment</label><input id="subAmount" type="number" min="0" step="0.01" inputmode="decimal" value="${sub ? Number(sub.amount) : ''}"></div><div class="field"><label>Currency code</label><input id="subCurrency" maxlength="6" value="${esc(sub?.currency || 'USD')}"></div></div>
+    <div class="field"><label>Repeats</label><select id="subCycle">${['weekly','monthly','quarterly','yearly'].map(c=>`<option value="${c}" ${sub?.cycle===c?'selected':''}>${c}</option>`).join('')}</select></div>
+    <div class="field"><label>Next payment date</label><input id="subDue" type="date" value="${sub?.next_due || today()}"></div>
+    <div class="field"><label>Notes (optional)</label><textarea id="subNotes">${esc(sub?.notes || '')}</textarea></div>
+    <button class="btn btn-primary" id="subSave">Save</button><button class="btn btn-cancel" id="subCancel">Cancel</button>${sub?'<button class="btn" style="color:var(--red)" id="subDelete">Delete reminder</button>':''}<div class="err" id="subErr"></div>`);
+  bg.querySelector('#subCancel').onclick=()=>bg.remove();
+  bg.querySelector('#subSave').onclick=async()=>{
+    const row={name:bg.querySelector('#subName').value.trim(),amount:Number(bg.querySelector('#subAmount').value),currency:bg.querySelector('#subCurrency').value.trim().toUpperCase(),cycle:bg.querySelector('#subCycle').value,next_due:bg.querySelector('#subDue').value,notes:bg.querySelector('#subNotes').value.trim()};
+    if(!row.name || !bg.querySelector('#subAmount').value || !Number.isFinite(row.amount) || row.amount<0 || !/^[A-Z]{3,6}$/.test(row.currency) || !row.next_due){bg.querySelector('#subErr').textContent='Enter a name, non-negative amount, currency and next date.';return;}
+    const result=sub?await sb.from('money_subscriptions').update(row).eq('id',sub.id):await sb.from('money_subscriptions').insert(row);
+    if(result.error){bg.querySelector('#subErr').textContent=result.error.message;return;} bg.remove(); await loadAll(); toast('Subscription reminder saved');
+  };
+  if(sub) bg.querySelector('#subDelete').onclick=async()=>{if(!confirm('Delete this reminder? No transactions will be changed.'))return;const {error}=await sb.from('money_subscriptions').delete().eq('id',sub.id);if(error){bg.querySelector('#subErr').textContent=error.message;return;}bg.remove();await loadAll();};
+}
 function renderHome() {
   const usdAccts = state.accounts.filter(a => acctCur(a) === 'USD');
   const totalAvail = usdAccts.reduce((s, a) => s + acctUsable(a), 0);
@@ -1212,6 +1254,7 @@ function toast(msg) {
 
 $('fab').onclick = () => openEntrySheet('spending');
 $('addAcctBtn').onclick = () => openAccountSheet();
+$('addSubBtn').onclick = () => openSubscription();
 $('spendMonth').onchange = renderSpendingChart;
 $('spendCurrency').onchange = renderSpendingChart;
 $('addGoalBtn').onclick = () => openGoalSheet();
