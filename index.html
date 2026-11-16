@@ -93,6 +93,15 @@
   .goal-card .g-add{color:var(--accent); font-weight:700; font-size:14px; border:1px solid var(--accent-dim); background:var(--accent-dim); padding:8px 14px; border-radius:12px}
   .goal-card .bar{height:8px; background:var(--card2); border-radius:99px; margin-top:12px; overflow:hidden}
   .goal-card .bar i{display:block; height:100%; background:var(--accent); border-radius:99px; transition:width .4s}
+  .goal-card .bar.afford{margin-top:6px}
+  .goal-card .bar.afford i{background:var(--blue)}
+  .goal-card .g-aff{font-size:11.5px; color:var(--dim); margin-top:4px}
+  .goal-card .g-aff.yes{color:var(--blue); font-weight:600}
+  .goal-card .g-due{display:inline-block; font-size:11.5px; color:var(--accent); border:1px solid var(--accent-dim); border-radius:99px; padding:2px 8px; margin-top:6px}
+  .goal-card .g-due.late{color:var(--red); border-color:var(--red)}
+  .goal-card .g-note{font-size:13px; color:var(--dim); margin-top:10px; line-height:1.45}
+  .goal-card .g-note a{color:var(--blue)}
+  .goal-card .g-link{display:inline-block; margin-top:10px; font-size:13.5px; font-weight:600; color:var(--blue)}
   .goal-card.done .bar i{background:linear-gradient(90deg,#fbbf24,#f59e0b)}
   .goal-card .g-foot{display:flex; justify-content:space-between; margin-top:8px; font-size:12.5px; color:var(--dim)}
   .goal-card .g-del{color:var(--dim)}
@@ -442,7 +451,7 @@ function renderTotal() {
   }
 
   const af = $('affordList');
-  const rows = state.goals.map(g => ({ g, saved: goalSaved(g.id), target: Number(g.target) }));
+  const rows = state.goals.map(g => ({ g, saved: goalSaved(g.id), target: Number(g.target) })).filter(r => r.target > 0);
   af.innerHTML = rows.length ? '' : '<div class="empty">No savings goals yet. Add one on the Goals tab and it will show up here.</div>';
   rows.sort((x, y) => {
     const xa = x.target > 0 && total >= x.target, ya = y.target > 0 && total >= y.target;
@@ -467,10 +476,22 @@ function renderTotal() {
 function renderGoals() {
   const el = $('goalsList');
   el.innerHTML = state.goals.length ? '' : '<div class="empty">No goals yet. Make one for something you\'re saving toward - like a new phone or a projector.</div>';
+  const usdAvail = state.accounts.filter(a => acctCur(a) === 'USD').reduce((x, a) => x + acctBalance(a.id), 0);
+  const usdTotal = usdAvail + state.goals.reduce((x, gg) => x + goalSaved(gg.id), 0);
   for (const g of state.goals) {
     const saved = goalSaved(g.id), target = Number(g.target);
-    const pct = Math.min(100, target > 0 ? saved / target * 100 : 0);
-    const done = saved >= target;
+    const hasTarget = target > 0;
+    const pct = hasTarget ? Math.min(100, saved / target * 100) : 0;
+    const done = hasTarget && saved >= target;
+    const affPct = hasTarget ? Math.min(100, usdTotal / target * 100) : 0;
+    const canAfford = hasTarget && usdTotal >= target;
+    let dueHtml = '';
+    if (g.due_date) {
+      const dd = new Date(g.due_date + 'T12:00:00');
+      const days = Math.ceil((dd - Date.now()) / 86400000);
+      const late = days < 0;
+      dueHtml = `<div class="g-due${late ? ' late' : ''}">Due ${fmtDate(g.due_date)}${late ? ' - past due' : days === 0 ? ' - today' : ` · ${days} day${days === 1 ? '' : 's'} left`}</div>`;
+    }
     const d = document.createElement('div');
     d.className = 'goal-card' + (done ? ' done' : '');
     const hist = state.txs.filter(t => t.goal_id === g.id && t.kind === 'saving').slice(0, 5);
@@ -479,18 +500,22 @@ function renderGoals() {
         <div class="g-emoji">${g.emoji || '🎯'}</div>
         <div class="g-mid">
           <div class="g-name"></div>
-          <div class="g-nums">${money(saved)} of ${money(target)}</div>
+          <div class="g-nums">${hasTarget ? money(saved) + ' of ' + money(target) : money(saved) + ' saved · no target set'}</div>
         </div>
         ${done ? '<div style="font-size:22px">🎉</div>' : '<button class="g-add">+ Add</button>'}
       </div>
-      <div class="bar"><i style="width:${pct}%"></i></div>
-      <div class="g-foot"><span>${done ? 'Funded!' : pct.toFixed(0) + '% there'}<span class="g-caret">▾</span></span><span><button class="g-edit">Edit</button><button class="g-del">Delete</button></span></div>
+      ${hasTarget ? `<div class="bar"><i style="width:${pct}%"></i></div>` : ''}
+      ${hasTarget ? `<div class="bar afford"><i style="width:${affPct}%"></i></div><div class="g-aff${canAfford ? ' yes' : ''}">${canAfford ? '✓ Can afford now' : 'Can afford: ' + affPct.toFixed(0) + '% of the price'}</div>` : ''}
+      ${dueHtml}
+      <div class="g-foot"><span>${!hasTarget ? 'No target yet' : done ? 'Funded!' : pct.toFixed(0) + '% there'}<span class="g-caret">▾</span></span><span><button class="g-edit">Edit</button><button class="g-del">Delete</button></span></div>
       <div class="g-detail">
         <div class="g-stats">
           <div class="g-stat"><div class="v">${money(saved)}</div><div class="k">Saved</div></div>
-          <div class="g-stat"><div class="v">${money(Math.max(0, target - saved))}</div><div class="k">Left to go</div></div>
-          <div class="g-stat"><div class="v">${pct.toFixed(0)}%</div><div class="k">${done ? 'Funded 🎉' : 'There'}</div></div>
+          <div class="g-stat"><div class="v">${hasTarget ? money(Math.max(0, target - saved)) : '–'}</div><div class="k">Left to go</div></div>
+          <div class="g-stat"><div class="v">${hasTarget ? pct.toFixed(0) + '%' : '–'}</div><div class="k">${done ? 'Funded 🎉' : 'There'}</div></div>
         </div>
+        ${g.note ? `<div class="g-note">${linkify(g.note)}</div>` : ''}
+        ${g.link ? `<a class="g-link" href="${esc(g.link)}" target="_blank" rel="noopener">View item ↗</a>` : ''}
         <div class="g-actions">
           <button class="ga-add">+ Add money</button>
           <button class="ga-edit">Edit goal</button>
@@ -834,7 +859,10 @@ function openGoalSheet(g = null) {
     <div class="field"><label>What are you saving for?</label><input id="gName" placeholder="iPhone Duo, projector…" value="${g ? esc(g.name) : ''}"></div>
     <div class="field"><label>Emoji</label><div class="chips" id="gEmojis">${emojis.map((e, x) => `<button data-e="${e}" class="${(g ? e === g.emoji && isPreset : x === 0) ? 'sel' : ''}">${e}</button>`).join('')}</div></div>
     <div class="field"><label>Or type your own emoji</label><input id="gCustom" placeholder="Any emoji - overrides the pick above" value="${g && !isPreset ? esc(g.emoji) : ''}"></div>
-    <div class="field"><label>Target amount</label><div class="amt-input"><span>$</span><input id="gTarget" type="number" inputmode="decimal" min="0" step="0.01" placeholder="0.00" value="${g ? Number(g.target) : ''}"></div></div>
+    <div class="field"><label>Target amount (optional)</label><div class="amt-input"><span>$</span><input id="gTarget" type="number" inputmode="decimal" min="0" step="0.01" placeholder="0.00" value="${g && g.target != null ? Number(g.target) : ''}"></div></div>
+    <div class="field"><label>Due date (optional)</label><input id="gDue" type="date" value="${g && g.due_date ? g.due_date : ''}"></div>
+    <div class="field"><label>Link to what you're buying (optional)</label><input id="gLink" type="url" placeholder="https://…" value="${g && g.link ? esc(g.link) : ''}"></div>
+    <div class="field"><label>Note (optional)</label><input id="gNote" placeholder="What is it, where to get it…" value="${g && g.note ? esc(g.note) : ''}"></div>
     <button class="btn btn-primary" id="gSave">${g ? 'Save changes' : 'Create goal'}</button>
     <button class="btn btn-cancel" type="button" id="gCancel">Cancel</button>
     <div class="err" id="gErr"></div>`);
@@ -850,13 +878,18 @@ function openGoalSheet(g = null) {
   bg.querySelector('#gCancel').onclick = () => bg.remove();
   bg.querySelector('#gSave').onclick = async () => {
     const name = bg.querySelector('#gName').value.trim();
-    const target = parseFloat(bg.querySelector('#gTarget').value);
+    const rawTarget = bg.querySelector('#gTarget').value.trim();
+    const target = rawTarget === '' ? null : parseFloat(rawTarget);
     if (!name) { bg.querySelector('#gErr').textContent = 'Give it a name'; return; }
-    if (!target || target <= 0) { bg.querySelector('#gErr').textContent = 'Set a target amount'; return; }
+    if (target !== null && (!isFinite(target) || target <= 0)) { bg.querySelector('#gErr').textContent = 'Target must be more than 0, or leave it empty'; return; }
+    let link = bg.querySelector('#gLink').value.trim() || null;
+    if (link && !/^https?:\/\//i.test(link)) link = 'https://' + link;
+    const due_date = bg.querySelector('#gDue').value || null;
+    const note = bg.querySelector('#gNote').value.trim() || null;
     const em = firstEmoji(bg.querySelector('#gCustom').value) || emoji;
     let error;
-    if (g) ({ error } = await sb.from('money_goals').update({ name, emoji: em, target }).eq('id', g.id));
-    else ({ error } = await sb.from('money_goals').insert({ name, emoji: em, target }));
+    if (g) ({ error } = await sb.from('money_goals').update({ name, emoji: em, target, due_date, link, note }).eq('id', g.id));
+    else ({ error } = await sb.from('money_goals').insert({ name, emoji: em, target, due_date, link, note }));
     if (error) { bg.querySelector('#gErr').textContent = error.message; return; }
     bg.remove(); toast(g ? 'Goal updated' : 'Goal created 🎯'); loadAll();
   };
@@ -867,6 +900,7 @@ const firstEmoji = s => {
   try { return [...new Intl.Segmenter('en', { granularity: 'grapheme' }).segment(s)][0].segment; } catch (e) { return Array.from(s)[0]; }
 };
 function esc(s) { return String(s).replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c])); }
+function linkify(s) { return esc(s).replace(/(https?:\/\/[^\s<]+|[a-z0-9-]+\.[a-z]{2,}(\/[^\s<]*)?)/gi, m => { const u = /^https?:\/\//i.test(m) ? m : 'https://' + m; return `<a href="${u}" target="_blank" rel="noopener">${m}</a>`; }); }
 function toast(msg) {
   const t = document.createElement('div');
   t.className = 'toast'; t.textContent = msg;
