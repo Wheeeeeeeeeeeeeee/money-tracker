@@ -346,7 +346,7 @@
       <div class="sub" id="grandSub"></div>
     </div>
     <details style="margin:18px 0;background:var(--card);padding:16px;border:1px solid var(--line);border-radius:16px"><summary style="cursor:pointer;font-weight:700;min-height:32px">Estimated USD view</summary><label style="display:flex;align-items:center;gap:10px;margin:12px 0"><input type="checkbox" id="fxToggle" style="width:22px;height:22px"> Include other currencies in an estimate</label><div class="total-note">Reference rates only, not what a bank or exchange will pay. Fees and spreads are not included. Recorded currencies, balances, goal targets and affordability stay unchanged.</div><div id="fxResult" style="margin-top:12px"></div></details>
-    <details style="margin:18px 0;background:var(--card);padding:16px;border:1px solid var(--line);border-radius:16px"><summary style="cursor:pointer;font-weight:700;min-height:32px">Balance over time · recorded USD</summary><p class="total-note">Reconstructed from current opening balances and dated entries, not bank snapshots. Editing opening balances, minimums or old entries changes this chart. Other currencies are excluded.</p><label style="display:block;margin:12px 0">Range <select id="balanceRange"><option value="7">7 days</option><option value="30" selected>30 days</option><option value="90">90 days</option></select></label><div id="balanceChart"></div></details>
+    <details style="margin:18px 0;background:var(--card);padding:16px;border:1px solid var(--line);border-radius:16px"><summary style="cursor:pointer;font-weight:700;min-height:32px">Balance over time · recorded USD</summary><p class="total-note">Reconstructed from current opening balances and dated entries, not bank snapshots. Editing opening balances or old entries changes this chart. Minimums are included in this total. Other currencies are excluded.</p><label style="display:block;margin:12px 0">Range <select id="balanceRange"><option value="7">7 days</option><option value="30" selected>30 days</option><option value="90">90 days</option></select></label><div id="balanceChart"></div></details>
     <div class="section-head"><h2>By account</h2></div>
     <div id="totalAccts"></div>
     <div class="section-head"><h2>What your total could cover</h2></div>
@@ -597,10 +597,11 @@ function renderHome() {
   const usdAccts = state.accounts.filter(a => acctCur(a) === 'USD');
   const totalAvail = usdAccts.reduce((s, a) => s + acctUsable(a), 0);
   const totalGoals = state.goals.reduce((s, g) => s + goalSaved(g.id), 0);
-  $('totalBal').textContent = money(totalAvail + totalGoals);
+  const totalAccounts=usdAccts.reduce((sum,a)=>sum+acctBalance(a.id),0);
+  $('totalBal').textContent = money(totalAccounts + totalGoals);
   renderDashboard(totalAvail);
   const others = otherCurSums();
-  $('totalSub2').textContent = `${money(totalAvail)} available · ${money(totalGoals)} saved in goals` + (others.length ? ` · plus ${others.join(', ')} in other currencies` : '');
+  $('totalSub2').textContent = `${money(totalAccounts)} in accounts (minimums included) · ${money(totalGoals)} saved in goals` + (others.length ? ` · plus ${others.join(', ')} in other currencies` : '');
   const month = new Date().toISOString().slice(0, 7);
   let ein = 0, eout = 0;
   for (const t of state.txs) {
@@ -642,9 +643,11 @@ function renderTotal() {
   const otherAccts = state.accounts.filter(a => acctCur(a) !== 'USD');
   const totalAvail = usdAccts.reduce((s, a) => s + acctUsable(a), 0);
   const totalGoals = state.goals.reduce((s, g) => s + goalSaved(g.id), 0);
-  const total = totalAvail + totalGoals;
-  $('grandTotal').textContent = money(total);
-  $('grandSub').textContent = `${money(totalAvail)} in accounts · ${money(totalGoals)} saved in goals` + (otherAccts.length ? ' · US dollars only - other currencies below' : '');
+  const totalAccounts=usdAccts.reduce((sum,a)=>sum+acctBalance(a.id),0);
+  const fullTotal=totalAccounts+totalGoals;
+  const total = totalAvail + totalGoals; // Affordability still protects minimums.
+  $('grandTotal').textContent = money(fullTotal);
+  $('grandSub').textContent = `${money(totalAccounts)} in accounts (minimums included) · ${money(totalGoals)} saved in goals` + (otherAccts.length ? ' · US dollars only - other currencies below' : '');
 
   const ac = $('totalAccts');
   ac.innerHTML = state.accounts.length ? '' : '<div class="empty">No accounts yet.</div>';
@@ -653,7 +656,7 @@ function renderTotal() {
     const amin = acctMin(a);
     const d = document.createElement('div');
     d.className = 'src-row';
-    d.innerHTML = `<div class="s-ic">${a.icon || '🏦'}</div><div class="s-name"></div><div style="text-align:right"><div class="s-amt" style="color:${acctUsable(a) < 0 ? 'var(--red)' : 'var(--text)'}">${money(acctUsable(a))}</div>${amin ? `<div class="s-count">Spending · All ${money(bal)}</div>` : ''}</div>`;
+    d.innerHTML = `<div class="s-ic">${a.icon || '🏦'}</div><div class="s-name"></div><div style="text-align:right"><div class="s-amt" style="color:${bal < 0 ? 'var(--red)' : 'var(--text)'}">${money(bal)}</div>${amin ? `<div class="s-count">${money(acctUsable(a))} spendable · ${money(amin)} minimum</div>` : ''}</div>`;
     d.querySelector('.s-name').textContent = a.name;
     ac.appendChild(d);
   }
@@ -1512,7 +1515,7 @@ function balanceHistoryPoints(days) {
   const points=[];
   for(let day=new Date(date+'T00:00:00Z');day.toISOString().slice(0,10)<=todayKey;day.setUTCDate(day.getUTCDate()+1)){
     const key=day.toISOString().slice(0,10);let cents=0;
-    for(const a of usd){if(key<birth.get(a.id))continue;cents+=Math.round(Number(a.starting_balance)*100)-Math.round((acctMin(a)||0)*100);
+    for(const a of usd){if(key<birth.get(a.id))continue;cents+=Math.round(Number(a.starting_balance)*100);
       for(const t of state.txs.filter(t=>t.account_id===a.id&&t.occurred_on<=key)){
         const value=Math.round(Number(t.amount)*100);cents+=((t.kind==='earning'||(t.kind==='transfer'&&t.direction==='in'))?1:-1)*value;
         if(t.kind==='saving'&&state.goals.some(g=>g.id===t.goal_id))cents+=value;
@@ -1526,7 +1529,7 @@ function renderBalanceHistory(){
   const low=Math.min(...points.map(p=>p.value)),high=Math.max(...points.map(p=>p.value)),span=high-low||1;
   const xy=points.map((p,i)=>({x:points.length===1?180:48+i/(points.length-1)*300,y:high===low?92:24+(high-p.value)/span*120,...p}));
   const last=points[points.length-1];
-  box.innerHTML=`<p style="font-size:22px;font-weight:800">${money(last.value)} <span style="font-size:12px;color:var(--dim)">current recorded USD</span></p><svg viewBox="0 0 360 184" style="width:100%;height:auto;display:block" role="img" aria-label="Reconstructed recorded USD balance from ${esc(points[0].date)} to ${esc(last.date)}"><line x1="48" y1="154" x2="348" y2="154" stroke="var(--line)"/><text x="0" y="22" fill="var(--dim)" font-size="11">${money(high)}</text><text x="0" y="151" fill="var(--dim)" font-size="11">${money(low)}</text><polyline points="${xy.map(p=>p.x+','+p.y).join(' ')}" fill="none" stroke="var(--accent)" stroke-width="3" stroke-linejoin="round"/>${xy.map(p=>`<circle cx="${p.x}" cy="${p.y}" r="3" fill="var(--accent)"><title>${esc(p.date)}: ${money(p.value)}</title></circle>`).join('')}<text x="48" y="176" fill="var(--dim)" font-size="11">${esc(fmtDate(points[0].date))}</text><text x="348" y="176" text-anchor="end" fill="var(--dim)" font-size="11">${esc(fmtDate(last.date))}</text></svg><p class="total-note">Uses current minimums. Goal savings counted once. Starts where recorded account/entry dates begin.</p><details style="margin-top:12px"><summary style="cursor:pointer;min-height:32px">Daily values</summary>${points.map(p=>`<div style="display:flex;justify-content:space-between;font-size:12px;padding:5px 0"><span>${esc(p.date)}</span><span>${money(p.value)}</span></div>`).join('')}</details>`;
+  box.innerHTML=`<p style="font-size:22px;font-weight:800">${money(last.value)} <span style="font-size:12px;color:var(--dim)">current recorded USD</span></p><svg viewBox="0 0 360 184" style="width:100%;height:auto;display:block" role="img" aria-label="Reconstructed recorded USD balance from ${esc(points[0].date)} to ${esc(last.date)}"><line x1="48" y1="154" x2="348" y2="154" stroke="var(--line)"/><text x="0" y="22" fill="var(--dim)" font-size="11">${money(high)}</text><text x="0" y="151" fill="var(--dim)" font-size="11">${money(low)}</text><polyline points="${xy.map(p=>p.x+','+p.y).join(' ')}" fill="none" stroke="var(--accent)" stroke-width="3" stroke-linejoin="round"/>${xy.map(p=>`<circle cx="${p.x}" cy="${p.y}" r="3" fill="var(--accent)"><title>${esc(p.date)}: ${money(p.value)}</title></circle>`).join('')}<text x="48" y="176" fill="var(--dim)" font-size="11">${esc(fmtDate(points[0].date))}</text><text x="348" y="176" text-anchor="end" fill="var(--dim)" font-size="11">${esc(fmtDate(last.date))}</text></svg><p class="total-note">Includes minimum balances. Goal savings counted once. Starts where recorded account/entry dates begin.</p><details style="margin-top:12px"><summary style="cursor:pointer;min-height:32px">Daily values</summary>${points.map(p=>`<div style="display:flex;justify-content:space-between;font-size:12px;padding:5px 0"><span>${esc(p.date)}</span><span>${money(p.value)}</span></div>`).join('')}</details>`;
 }
 $('balanceRange').onchange=renderBalanceHistory;
 function readTemplates(){try{const items=JSON.parse(localStorage.getItem('moneyTemplates:'+state.user?.id)||'[]');return Array.isArray(items)?items:[];}catch(_){return [];}}
@@ -1572,8 +1575,8 @@ function renderFx() {
   const box=$('fxResult');if(!box)return;
   if(!fx.enabled){box.textContent='Off by default. Turn on to see an estimate.';return;}
   if(!fx.cache){box.textContent=fx.loading?'Loading reference rates...':fx.error;return;}
-  const groups={};for(const a of state.accounts)if(acctCur(a)!=='USD')groups[acctCur(a)]=(groups[acctCur(a)]||0)+acctUsable(a);
-  let estimate=state.accounts.filter(a=>acctCur(a)==='USD').reduce((n,a)=>n+acctUsable(a),0)+state.goals.reduce((n,g)=>n+goalSaved(g.id),0),missing=[];
+  const groups={};for(const a of state.accounts)if(acctCur(a)!=='USD')groups[acctCur(a)]=(groups[acctCur(a)]||0)+acctBalance(a.id);
+  let estimate=state.accounts.filter(a=>acctCur(a)==='USD').reduce((n,a)=>n+acctBalance(a.id),0)+state.goals.reduce((n,g)=>n+goalSaved(g.id),0),missing=[];
   const rows=Object.entries(groups).map(([currency,amount])=>{
     const rate=fx.cache.rates.find(r=>r.quote===currency);
     if(!rate){missing.push(currency);return `<p>${esc(currency)}: no rate available, excluded.</p>`;}
@@ -1581,7 +1584,7 @@ function renderFx() {
     const age=(Date.now()-new Date(rate.date+'T00:00:00Z').getTime())/86400000;
     return `<div style="padding:10px 0;border-bottom:1px solid var(--line);font-size:13px"><b>${esc(moneyC(amount,currency))} ≈ ${money(value)} USD</b><br><span style="color:var(--dim)">1 ${esc(currency)} = ${(1/Number(rate.rate)).toPrecision(6)} USD · ${esc(rate.date)}${age>7?' · Older than 7 days':''}</span></div>`;
   });
-  box.innerHTML=`<div style="font-size:24px;font-weight:800">≈ ${money(estimate)} USD</div><p class="total-note">${missing.length?'Partial estimate. Excludes '+esc(missing.join(', '))+'.':'Estimated spending money plus goal savings across all currencies.'} Minimum balances excluded. Goal savings counted once.</p>${rows.join('')}<p class="total-note" style="margin-top:10px">Source: <a href="https://frankfurter.dev/" style="color:var(--accent)" target="_blank" rel="noopener">Frankfurter blended reference rates</a>. Rate dates shown above. Fetched ${esc(new Date(fx.cache.fetchedAt).toLocaleString())}. ${esc(fx.error)}</p>`;
+  box.innerHTML=`<div style="font-size:24px;font-weight:800">≈ ${money(estimate)} USD</div><p class="total-note">${missing.length?'Partial estimate. Excludes '+esc(missing.join(', '))+'.':'Estimated full account balances plus goal savings across all currencies.'} Minimum balances included. Goal savings counted once.</p>${rows.join('')}<p class="total-note" style="margin-top:10px">Source: <a href="https://frankfurter.dev/" style="color:var(--accent)" target="_blank" rel="noopener">Frankfurter blended reference rates</a>. Rate dates shown above. Fetched ${esc(new Date(fx.cache.fetchedAt).toLocaleString())}. ${esc(fx.error)}</p>`;
 }
 $('fxToggle').onchange=()=>{fx.enabled=$('fxToggle').checked;if(fx.enabled)loadFx();renderFx();};
 /* Fetch every page, not only the recent rows displayed by the app. */
