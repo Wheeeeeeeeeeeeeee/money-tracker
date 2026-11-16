@@ -318,6 +318,7 @@
       <div class="sub" id="totalSub"></div>
       <div class="sub" id="totalSub2"></div>
     </div>
+    <section id="homeDashboard" style="margin:16px 0"></section>
     <details style="margin:16px 0;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px"><summary style="cursor:pointer;min-height:32px;font-weight:700">Spending watchlist</summary><p class="total-note">Pin one category's current-month total here. This browser only. No budget or limit assumed.</p><div class="row2"><div class="field"><label for="watchCategory">Category</label><select id="watchCategory"><option value="">Choose a category</option></select></div><div class="field"><label for="watchCurrency">Currency</label><select id="watchCurrency"></select></div></div><div id="watchResult" role="status"></div></details>
     <div id="nextGoal" style="margin:16px 0"></div>
     <div class="section-head"><h2>Accounts</h2><button id="addAcctBtn">+ Add</button></div>
@@ -578,6 +579,7 @@ function renderHome() {
   const totalAvail = usdAccts.reduce((s, a) => s + acctUsable(a), 0);
   const totalGoals = state.goals.reduce((s, g) => s + goalSaved(g.id), 0);
   $('totalBal').textContent = money(totalAvail + totalGoals);
+  renderDashboard(totalAvail);
   const others = otherCurSums();
   $('totalSub2').textContent = `${money(totalAvail)} available · ${money(totalGoals)} saved in goals` + (others.length ? ` · plus ${others.join(', ')} in other currencies` : '');
   const month = new Date().toISOString().slice(0, 7);
@@ -1399,6 +1401,13 @@ const firstEmoji = s => {
 };
 function esc(s) { return String(s).replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c])); }
 function linkify(s) { return esc(s).replace(/(https?:\/\/[^\s<]+|[a-z0-9-]+\.[a-z]{2,}(\/[^\s<]*)?)/gi, m => { const u = /^https?:\/\//i.test(m) ? m : 'https://' + m; return `<a href="${u}" target="_blank" rel="noopener">${m}</a>`; }); }
+function renderDashboard(available){
+ const box=$('homeDashboard');if(!box)return;
+ const upcoming=[...state.subscriptions.map(s=>({name:s.name,date:s.next_due,amount:moneyC(Number(s.amount),s.currency),type:'Manual subscription'})),...state.goals.filter(g=>g.due_date).map(g=>({name:g.name,date:g.due_date,amount:'Goal date',type:'Goal'}))].filter(x=>x.date>=today()).sort((a,b)=>a.date.localeCompare(b.date)).slice(0,4);
+ const protectedAmount=state.accounts.filter(a=>acctCur(a)==='USD').reduce((n,a)=>n+(acctMin(a)||0),0);
+ box.innerHTML=`<div style="background:var(--card);border:1px solid var(--line);padding:16px;border-radius:16px"><div class="total-note">Safe to spend · recorded USD</div><div style="font-size:28px;font-weight:800">${money(available)}</div><p class="total-note">After ${money(protectedAmount)} in account minimums. Goal deposits already leave accounts, so they are not subtracted again. Not a bank balance or a promise that bills are covered.</p></div><div style="display:flex;gap:8px;margin:12px 0;flex-wrap:wrap"><button class="btn quick" data-kind="earning" style="flex:1;min-height:44px">+ Income</button><button class="btn quick" data-kind="spending" style="flex:1;min-height:44px">+ Spend</button><button class="btn quick" data-kind="saving" style="flex:1;min-height:44px">+ Save</button></div><div style="background:var(--card);border:1px solid var(--line);padding:14px;border-radius:14px"><b style="font-size:14px">Upcoming</b>${upcoming.length?upcoming.map(x=>`<div style="padding:10px 0;border-bottom:1px solid var(--line);font-size:13px"><b>${esc(x.name)}</b><div class="total-note">${esc(fmtDate(x.date))} · ${esc(x.type)} · ${esc(x.amount)}</div></div>`).join(''):'<p class="total-note">No upcoming subscription reminders or goal dates recorded.</p>'}<p class="total-note">Only dates you enter. Nothing charges automatically.</p></div>`;
+ box.querySelectorAll('.quick').forEach(b=>b.onclick=()=>openEntrySheet(b.dataset.kind));
+}
 let foreignExpanded=false;
 const ACCOUNT_COLORS=['#34dc8a','#49a8ff','#a98bff','#f5ae48','#ed7198','#72d5d1'];
 function accountLayout(){try{const value=JSON.parse(localStorage.getItem('moneyAccountLayout:'+state.user?.id)||'{}');return value&&typeof value==='object'?value:{};}catch(_){return {};}}
