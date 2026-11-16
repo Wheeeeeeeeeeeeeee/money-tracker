@@ -320,6 +320,7 @@
     </div>
     <div class="section-head"><h2>Accounts</h2><button id="addAcctBtn">+ Add</button></div>
     <div class="acct-row" id="acctRow"></div>
+    <details style="background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px;margin:20px 0"><summary style="font-weight:700;cursor:pointer">Weekly summary</summary><div style="display:flex;gap:12px;margin:12px 0"><button id="weekPrev" class="mini-btn">Previous week</button><button id="weekNow" class="mini-btn">This week</button></div><div id="weeklySummary"></div></details>
     <div class="section-head"><h2>Subscriptions</h2><button id="addSubBtn">+ Add</button></div>
     <div class="total-note" style="margin-bottom:10px">Manual reminders only. These do not charge money or create transactions.</div><div id="subscriptionSummary"></div><div id="subscriptionList"></div>
     <details style="margin:20px 0;background:var(--card);padding:16px;border:1px solid var(--line);border-radius:16px"><summary style="cursor:pointer;font-weight:700;min-height:32px">Backup &amp; tools</summary><p class="total-note">Download a private copy of your recorded accounts, goals, items, reminders and full transaction history. Keep it somewhere safe. No passwords are included.</p><button id="exportBackupBtn" class="btn" style="margin-top:12px">Download JSON backup</button><p class="total-note" id="exportStatus" role="status"></p></details>
@@ -509,7 +510,25 @@ const acctMin = a => (a && a.minimum_balance != null) ? Number(a.minimum_balance
 const acctUsable = a => acctBalance(a.id) - (acctMin(a) || 0);
 
 /* ---------- render ---------- */
-function renderAll() { renderSubscriptions(); renderHome(); renderTotal(); renderGoals(); renderIncome(); renderActivity(); renderFx(); renderTemplates(); }
+function renderAll() { renderWeeklySummary(); renderSubscriptions(); renderHome(); renderTotal(); renderGoals(); renderIncome(); renderActivity(); renderFx(); renderTemplates(); }
+let summaryWeekOffset = 0;
+function renderWeeklySummary() {
+  const start=new Date(savingsWeek(today())+'T00:00:00Z');start.setUTCDate(start.getUTCDate()+summaryWeekOffset*7);
+  const end=new Date(start);end.setUTCDate(end.getUTCDate()+6);
+  const lo=start.toISOString().slice(0,10),hi=end.toISOString().slice(0,10);
+  const txs=state.txs.filter(t=>t.occurred_on>=lo&&t.occurred_on<=hi&&t.occurred_on<=today()&&!isAdjustment(t));
+  const currencies=[...new Set(state.accounts.map(a=>acctCur(a)))];
+  const parts=currencies.map(cur=>{
+    const rows=txs.filter(t=>acctCur(state.accounts.find(a=>a.id===t.account_id))===cur);
+    const sum=kind=>rows.filter(t=>t.kind===kind).reduce((n,t)=>n+Number(t.amount),0);
+    const categories={};rows.filter(t=>t.kind==='spending').forEach(t=>categories[t.category||'Other']=(categories[t.category||'Other']||0)+Number(t.amount));
+    const biggest=Object.entries(categories).sort((a,b)=>b[1]-a[1])[0];
+    if(!rows.length)return '';
+    return `<div style="padding:10px 0;border-bottom:1px solid var(--line)"><b>${cur}</b><div class="total-note">In ${moneyC(sum('earning'),cur)} · Out ${moneyC(sum('spending'),cur)} · Saved ${moneyC(sum('saving'),cur)}</div><div class="total-note">${biggest?'Biggest spending category: '+esc(biggest[0])+' · '+moneyC(biggest[1],cur):'No spending logged.'}</div></div>`;
+  }).join('');
+  const savedGoals=state.goals.filter(g=>goalSaved(g.id)>0);
+  $('weeklySummary').innerHTML=`<p style="font-size:13px;color:var(--dim)">${fmtDate(lo)} - ${fmtDate(hi)} · ${summaryWeekOffset===0?'so far':'recorded entries'} · Transfers excluded from income/spending.</p>${parts||'<div class="empty">No entries in this week.</div>'}<p class="total-note" style="margin-top:12px">Current goal progress: ${savedGoals.length?savedGoals.map(g=>esc(g.name)+': '+money(goalSaved(g.id))+(Number(g.target)>0?' ('+Math.min(100,Math.round(goalSaved(g.id)/Number(g.target)*100))+'%)':'')).join(' · '):'No goal deposits yet.'}</p>`;
+}
 function renderSubscriptions() {
   const sums = {};
   for (const sub of state.subscriptions) {
@@ -1476,6 +1495,8 @@ function toast(msg) {
 
 $('fab').onclick = () => openEntrySheet('spending');
 $('addAcctBtn').onclick = () => openAccountSheet();
+$('weekPrev').onclick=()=>{summaryWeekOffset--;renderWeeklySummary();};
+$('weekNow').onclick=()=>{summaryWeekOffset=0;renderWeeklySummary();};
 $('addSubBtn').onclick = () => openSubscription();
 $('spendMonth').onchange = renderSpendingChart;
 $('spendCurrency').onchange = renderSpendingChart;
