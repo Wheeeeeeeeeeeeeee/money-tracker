@@ -344,6 +344,7 @@
 
   <div id="tab-goals" class="hidden">
     <div class="section-head"><h2>Savings goals</h2><button id="addGoalBtn">+ New goal</button></div>
+    <div id="savingStreak" class="total-note" style="margin-bottom:14px"></div>
     <div id="goalFilter"></div>
     <div id="goalsList"></div>
   </div>
@@ -652,7 +653,16 @@ function renderTotal() {
     af.appendChild(d);
   }
 }
+function savingsWeek(date) {
+  const d=new Date(date+'T00:00:00Z');const day=(d.getUTCDay()+6)%7;d.setUTCDate(d.getUTCDate()-day);return d.toISOString().slice(0,10);
+}
 function renderGoals() {
+  const currentWeek=savingsWeek(today()), weekMs=7*86400000;
+  const weeks=new Set(state.txs.filter(t=>t.kind==='saving'&&Number(t.amount)>0&&t.occurred_on<=today()).map(t=>savingsWeek(t.occurred_on)));
+  let cursor=new Date(currentWeek+'T00:00:00Z');
+  if(!weeks.has(currentWeek))cursor=new Date(cursor.getTime()-weekMs);
+  let streak=0;while(weeks.has(cursor.toISOString().slice(0,10))){streak++;cursor=new Date(cursor.getTime()-weekMs);}
+  $('savingStreak').textContent=streak ? `🔥 ${streak}-week saving streak · Weeks start Monday. ${weeks.has(currentWeek)?'You saved this week.':'Save this week to keep it going.'}` : 'Start a saving streak with a goal deposit. Each Monday-Sunday week with a deposit counts.';
   const el = $('goalsList');
   el.innerHTML = state.goals.length ? '' : '<div class="empty">No goals yet. Make one for something you\'re saving toward - like a new phone or a projector.</div>';
   const usdAvail = state.accounts.filter(a => acctCur(a) === 'USD').reduce((x, a) => x + acctUsable(a), 0);
@@ -718,7 +728,7 @@ function renderGoals() {
         </div>
         ${done ? '<div style="font-size:22px">🎉</div>' : '<button class="g-add">+ Add</button>'}
       </div>
-      ${hasTarget ? `<div class="bar"><i style="width:${pct}%"></i></div>` : ''}
+      ${hasTarget ? `<div class="bar"><i style="width:${pct}%"></i></div>${[25,50,75,100].filter(n=>pct>=n).length?`<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">${[25,50,75,100].filter(n=>pct>=n).map(n=>`<span class="cat-chip">${n===100?'🏆':'⭐'} ${n}% saved</span>`).join('')}</div>`:''}` : ''}
       ${hasTarget ? `<div class="bar afford"><i style="width:${affPct}%"></i></div><div class="g-aff${canAfford ? ' yes' : ''}">${canAfford ? '✓ Can afford now' : 'Can afford: ' + affPct.toFixed(0) + '% of the price'}</div>` : ''}
       <div>${statusHtml}${dueHtml}</div>
       ${goalCats(g).length ? `<div class="cat-row">${goalCats(g).map(c => `<span class="cat-chip">${esc(c)}</span>`).join('')}</div>` : ''}
@@ -1474,4 +1484,4 @@ $('addGoalBtn').onclick = () => openGoalSheet();
 init();
 </script>
 </body>
-  </html>
+      </html>
