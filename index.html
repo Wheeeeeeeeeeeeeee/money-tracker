@@ -889,8 +889,10 @@ function txRow(t) {
         : fmtDate(t.occurred_on) + ' · ' + (a ? a.name : 'Deleted account') + (g ? ' → ' + g.name : '') + ' · ' + (t.category || 'Other')}</div>
     </div>
     <div class="amt ${t.kind}">${isTransfer ? '' : t.kind === 'earning' ? '+' : '-'}${moneyC(t.amount, cur)}</div>
-    <button class="del" title="Delete">×</button>`;
+    <button class="edit-tx mini-btn" aria-label="Edit entry" style="min-width:44px;min-height:44px">Edit</button><button class="del" title="Delete" aria-label="Delete entry" style="min-width:44px;min-height:44px">×</button>`;
   d.querySelector('.t1').textContent = t.note || (isTransfer ? 'Transfer' : t.kind === 'saving' ? 'Saved to goal' : t.category || 'Entry');
+  d.querySelector('.edit-tx').onclick=()=>openTxEdit(t);
+  let touchStart=null;d.addEventListener('touchstart',e=>{const p=e.touches[0];touchStart={x:p.clientX,y:p.clientY};},{passive:true});d.addEventListener('touchend',e=>{if(!touchStart)return;const p=e.changedTouches[0],dx=p.clientX-touchStart.x,dy=p.clientY-touchStart.y;touchStart=null;if(Math.abs(dx)>=80&&Math.abs(dy)<40){openTxEdit(t);}});
   d.querySelector('.del').onclick = async () => {
     const ids = t.paired ? t.pair_ids : [t.id];
     queueDelete('tx:'+ids.join(','), t.note || 'Entry', async()=>sb.from('money_transactions').delete().in('id',ids));
@@ -898,6 +900,24 @@ function txRow(t) {
   return d;
 }
 
+function openTxEdit(t){
+ const ids=t.paired?t.pair_ids:[t.id],original=state.txs.filter(x=>ids.includes(x.id)).map(x=>({...x})),a=state.accounts.find(a=>a.id===t.account_id),limited=t.kind==='transfer'||isAdjustment(t);
+ const bg=openSheet(`<h3>Edit entry</h3><p class="acct-note">${limited?'For transfers and balance checks, edit the date or note only. Amounts and paired legs stay together.':'Changes update this recorded entry and its balance effects. Review before saving.'} Swipe either way on a transaction to open this panel.</p><div class="field"><label>Date</label><input id="editTxDate" type="date" value="${esc(t.occurred_on)}"></div><div class="field"><label>Note</label><input id="editTxNote" value="${esc(t.note||'')}" ${isAdjustment(t)?'disabled':''}></div>${!limited?`<div class="field"><label>Amount · ${esc(acctCur(a))}</label><input id="editTxAmount" type="number" inputmode="decimal" min="0.01" step="0.01" value="${Number(t.amount)}"></div><div class="field"><label>Category / source</label><input id="editTxCategory" value="${esc(t.category||'Other')}" ${t.kind==='saving'?'disabled':''}></div>`:''}<div class="err" id="editTxErr"></div><p class="acct-note" id="editTxReview"></p><button class="btn" id="editTxSave">Review changes</button><button class="btn btn-cancel" id="editTxDelete" style="color:var(--red);margin-top:10px">Delete entry</button>`);
+ let reviewed=null;
+ bg.querySelector('#editTxDelete').onclick=()=>{bg.remove();queueDelete('tx:'+ids.join(','),t.note||'Entry',async()=>sb.from('money_transactions').delete().in('id',ids));};
+ bg.querySelector('#editTxSave').onclick=async()=>{
+  const patch={occurred_on:bg.querySelector('#editTxDate').value,note:bg.querySelector('#editTxNote').value.trim()};
+  if(!patch.occurred_on)return bg.querySelector('#editTxErr').textContent='Choose a date.';
+  if(!limited){patch.amount=Math.round(Number(bg.querySelector('#editTxAmount').value)*100)/100;patch.category=bg.querySelector('#editTxCategory').value.trim()||'Other';if(!Number.isFinite(patch.amount)||patch.amount<=0)return bg.querySelector('#editTxErr').textContent='Enter a positive amount.';}
+  const key=JSON.stringify(patch);if(reviewed!==key){reviewed=key;bg.querySelector('#editTxReview').textContent=limited?`Date ${t.occurred_on} → ${patch.occurred_on}. Note: ${patch.note||'(blank)'}. Amount and accounts unchanged.`:`${moneyC(t.amount,acctCur(a))} → ${moneyC(patch.amount,acctCur(a))}. Date ${patch.occurred_on}. Category/source: ${patch.category}. Note: ${patch.note||'(blank)'}. Account and goal unchanged.`;bg.querySelector('#editTxSave').textContent='Confirm changes';return;}
+  const btn=bg.querySelector('#editTxSave');btn.disabled=true;
+  try{const live=await sb.from('money_transactions').select('*').in('id',ids);if(live.error)throw live.error;
+   const fields=['id','amount','kind','account_id','goal_id','note','category','occurred_on','transfer_id','direction'];const snap=rows=>JSON.stringify(rows.map(x=>Object.fromEntries(fields.map(k=>[k,x[k]??null]))).sort((a,b)=>a.id.localeCompare(b.id)));
+   if(snap(live.data)!==snap(original))throw new Error('This entry changed elsewhere. Close and refresh before editing.');
+   const result=await sb.from('money_transactions').update(patch).in('id',ids);if(result.error)throw result.error;bg.remove();toast('Entry updated');await loadAll();
+  }catch(e){bg.querySelector('#editTxErr').textContent=e.message||'Could not update entry.';btn.disabled=false;}
+ };
+}
 /* ---------- tabs ---------- */
 document.querySelectorAll('nav.tabs button').forEach(b => b.onclick = () => {
   document.querySelectorAll('nav.tabs button').forEach(x => x.classList.toggle('active', x === b));
@@ -1594,4 +1614,4 @@ $('addGoalBtn').onclick = () => openGoalSheet();
 init();
 </script>
 </body>
-      </html>
+  </html>
