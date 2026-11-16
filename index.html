@@ -321,7 +321,8 @@
     <details style="margin:16px 0;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px"><summary style="cursor:pointer;min-height:32px;font-weight:700">Spending watchlist</summary><p class="total-note">Pin one category's current-month total here. This browser only. No budget or limit assumed.</p><div class="row2"><div class="field"><label for="watchCategory">Category</label><select id="watchCategory"><option value="">Choose a category</option></select></div><div class="field"><label for="watchCurrency">Currency</label><select id="watchCurrency"></select></div></div><div id="watchResult" role="status"></div></details>
     <div id="nextGoal" style="margin:16px 0"></div>
     <div class="section-head"><h2>Accounts</h2><button id="addAcctBtn">+ Add</button></div>
-    <div class="acct-row" id="acctRow"></div>
+    <button id="foreignToggle" class="mini-btn" style="min-height:44px;margin-bottom:8px"></button><div class="acct-row" id="acctRow"></div>
+    <details style="margin:12px 0;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px"><summary style="cursor:pointer;min-height:32px">Arrange account cards</summary><p class="total-note">Colors and order save in this browser for this user. Use arrows or drag handles to reorder. Names, icons and recorded balances are unchanged.</p><div id="accountArrange"></div></details>
     <details style="background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px;margin:20px 0"><summary style="font-weight:700;cursor:pointer">Weekly summary</summary><div style="display:flex;gap:12px;margin:12px 0"><button id="weekPrev" class="mini-btn">Previous week</button><button id="weekNow" class="mini-btn">This week</button></div><div id="weeklySummary"></div></details>
     <div class="section-head"><h2>Subscriptions</h2><button id="addSubBtn">+ Add</button></div>
     <div class="total-note" style="margin-bottom:10px">Manual reminders only. These do not charge money or create transactions.</div><div id="subscriptionSummary"></div><div id="subscriptionList"></div>
@@ -515,7 +516,7 @@ const acctMin = a => (a && a.minimum_balance != null) ? Number(a.minimum_balance
 const acctUsable = a => acctBalance(a.id) - (acctMin(a) || 0);
 
 /* ---------- render ---------- */
-function renderAll() { renderWeeklySummary(); renderSubscriptions(); renderHome(); renderTotal(); renderGoals(); renderIncome(); renderActivity(); renderFx(); renderTemplates(); renderBalanceHistory(); renderGoalOrder(); renderWatchlist(); }
+function renderAll() { renderWeeklySummary(); renderSubscriptions(); renderHome(); renderTotal(); renderGoals(); renderIncome(); renderActivity(); renderFx(); renderTemplates(); renderBalanceHistory(); renderGoalOrder(); renderWatchlist(); renderAccountArrange(); }
 let summaryWeekOffset = 0;
 function renderWeeklySummary() {
   const start=new Date(savingsWeek(today())+'T00:00:00Z');start.setUTCDate(start.getUTCDate()+summaryWeekOffset*7);
@@ -592,10 +593,13 @@ function renderHome() {
   $('totalSub').textContent = `This month: ${money(ein)} in · ${money(eout)} out`;
 
   $('acctRow').innerHTML = state.accounts.length ? '' : '<div class="empty" style="width:100%">No accounts yet. Add one - like Bank of America, Cash App or Apple Pay - with your current balance.</div>';
-  for (const a of state.accounts) {
+  const foreignCount=state.accounts.filter(a=>acctCur(a)!=='USD').length;
+  $('foreignToggle').textContent=(foreignExpanded?'Hide other currencies':'More: other currencies')+' ('+foreignCount+') '+[...new Set(state.accounts.filter(a=>acctCur(a)!=='USD').map(a=>({CAD:'🇨🇦',EUR:'🇪🇺',PLN:'🇵🇱',ARS:'🇦🇷',BMD:'🇧🇲',HUF:'🇭🇺'})[acctCur(a)]||acctCur(a)))].join(' ');$('foreignToggle').classList.toggle('hidden',!foreignCount);
+  for (const a of orderedAccounts().filter(a=>foreignExpanded||acctCur(a)==='USD')) {
     const bal = acctBalance(a.id);
     const d = document.createElement('div');
     d.className = 'acct-card';
+    const color=accountLayout().colors?.[a.id];if(ACCOUNT_COLORS.includes(color)){d.style.borderColor=color;d.style.borderTopWidth='4px';}
     const amin = acctMin(a);
     const minNote = `<div class="acct-note">Must have a minimum of ${moneyC(amin || 0, acctCur(a))} in account</div>`;
     if (amin) {
@@ -1395,6 +1399,19 @@ const firstEmoji = s => {
 };
 function esc(s) { return String(s).replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c])); }
 function linkify(s) { return esc(s).replace(/(https?:\/\/[^\s<]+|[a-z0-9-]+\.[a-z]{2,}(\/[^\s<]*)?)/gi, m => { const u = /^https?:\/\//i.test(m) ? m : 'https://' + m; return `<a href="${u}" target="_blank" rel="noopener">${m}</a>`; }); }
+let foreignExpanded=false;
+const ACCOUNT_COLORS=['#34dc8a','#49a8ff','#a98bff','#f5ae48','#ed7198','#72d5d1'];
+function accountLayout(){try{const value=JSON.parse(localStorage.getItem('moneyAccountLayout:'+state.user?.id)||'{}');return value&&typeof value==='object'?value:{};}catch(_){return {};}}
+function orderedAccounts(){const ids=accountLayout().order||[];return [...state.accounts].sort((a,b)=>{const x=ids.indexOf(a.id),y=ids.indexOf(b.id);return(x<0?9999:x)-(y<0?9999:y);});}
+function saveAccountLayout(value){try{localStorage.setItem('moneyAccountLayout:'+state.user.id,JSON.stringify(value));renderHome();renderAccountArrange();}catch(_){toast('Could not save account layout in this browser.');}}
+function renderAccountArrange(){
+ const box=$('accountArrange');if(!box)return;const accounts=orderedAccounts();box.innerHTML='';
+ accounts.forEach((a,i)=>{const row=document.createElement('div');row.style.cssText='border-top:1px solid var(--line);padding:12px 0';row.innerHTML=`<div style="display:flex;gap:8px;align-items:center"><span class="account-drag" draggable="true" role="button" tabindex="0" aria-label="Drag ${esc(a.name)} to reorder" style="padding:10px;cursor:grab">☰</span><span style="flex:1;font-size:13px">${esc(a.name)} · ${esc(acctCur(a))}</span><button class="up mini-btn" style="min-width:44px;min-height:44px" aria-label="Move ${esc(a.name)} up" ${i===0?'disabled':''}>↑</button><button class="down mini-btn" style="min-width:44px;min-height:44px" aria-label="Move ${esc(a.name)} down" ${i===accounts.length-1?'disabled':''}>↓</button></div><div style="display:flex;flex-wrap:wrap;gap:6px" class="colors">${ACCOUNT_COLORS.map(c=>`<button style="background:${c};border:2px solid ${accountLayout().colors?.[a.id]===c?'var(--text)':'transparent'};border-radius:50%;width:36px;height:36px" data-color="${c}" aria-label="Set ${esc(a.name)} color ${c}"></button>`).join('')}<button class="reset mini-btn" style="min-height:36px">Reset color</button></div>`;
+ const move=delta=>{const value=accountLayout(),ids=accounts.map(a=>a.id);[ids[i],ids[i+delta]]=[ids[i+delta],ids[i]];value.order=ids;saveAccountLayout(value);};row.querySelector('.up').onclick=()=>move(-1);row.querySelector('.down').onclick=()=>move(1);
+ row.querySelector('.account-drag').ondragstart=e=>{e.dataTransfer.setData('text/plain',a.id);e.dataTransfer.effectAllowed='move';};row.ondragover=e=>e.preventDefault();row.ondrop=e=>{e.preventDefault();const from=e.dataTransfer.getData('text/plain'),value=accountLayout(),ids=accounts.map(a=>a.id);if(!ids.includes(from)||from===a.id)return;ids.splice(ids.indexOf(from),1);ids.splice(ids.indexOf(a.id),0,from);value.order=ids;saveAccountLayout(value);};
+ row.querySelectorAll('[data-color]').forEach(b=>b.onclick=()=>{const value=accountLayout();value.colors={...value.colors,[a.id]:b.dataset.color};saveAccountLayout(value);});row.querySelector('.reset').onclick=()=>{const value=accountLayout();if(value.colors)delete value.colors[a.id];saveAccountLayout(value);};box.append(row);});
+}
+$('foreignToggle').onclick=()=>{foreignExpanded=!foreignExpanded;renderHome();};
 function watchChoice(){try{return JSON.parse(localStorage.getItem('moneyWatchlist:'+state.user?.id)||'null');}catch(_){return null;}}
 function renderWatchlist(){
   const cat=$('watchCategory'),cur=$('watchCurrency');if(!cat)return;const choice=watchChoice();
@@ -1515,7 +1532,7 @@ async function exportBackup() {
     const tables=['money_accounts','money_goals','money_goal_items','money_transactions','money_subscriptions'];
     const values=await Promise.all(tables.map(readFullTable));
     if(state.user?.id!==owner)throw new Error('Signed-in account changed. Try again.');
-    const backup={format:'money-tracker-backup',version:1,local_watchlist:watchChoice(),local_goal_order:goalOrderIds(),local_templates:readTemplates(),exported_at:new Date().toISOString(),notes:'Manual records. Amounts keep their original currencies. No exchange conversion. Export only, not an import tool.',tables:Object.fromEntries(tables.map((t,i)=>[t,values[i]]))};
+    const backup={format:'money-tracker-backup',version:1,local_account_layout:accountLayout(),local_watchlist:watchChoice(),local_goal_order:goalOrderIds(),local_templates:readTemplates(),exported_at:new Date().toISOString(),notes:'Manual records. Amounts keep their original currencies. No exchange conversion. Export only, not an import tool.',tables:Object.fromEntries(tables.map((t,i)=>[t,values[i]]))};
     const blob=new Blob([JSON.stringify(backup,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob);
     const a=document.createElement('a');a.href=url;a.download='money-backup-'+today()+'.json';document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);
     status.textContent='Backup download started: '+values.map((v,i)=>v.length+' '+tables[i].replace('money_','')).join(', ')+'. Check your Downloads or share/save menu.';
