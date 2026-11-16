@@ -317,6 +317,7 @@
     <div class="acct-row" id="acctRow"></div>
     <div class="section-head"><h2>Subscriptions</h2><button id="addSubBtn">+ Add</button></div>
     <div class="total-note" style="margin-bottom:10px">Manual reminders only. These do not charge money or create transactions.</div><div id="subscriptionSummary"></div><div id="subscriptionList"></div>
+    <details style="margin:20px 0;background:var(--card);padding:16px;border:1px solid var(--line);border-radius:16px"><summary style="cursor:pointer;font-weight:700;min-height:32px">Backup &amp; tools</summary><p class="total-note">Download a private copy of your recorded accounts, goals, items, reminders and full transaction history. Keep it somewhere safe. No passwords are included.</p><button id="exportBackupBtn" class="btn" style="margin-top:12px">Download JSON backup</button><p class="total-note" id="exportStatus" role="status"></p></details>
     <div class="section-head"><h2>Recent activity</h2></div>
     <div class="tx-list" id="recentTx"></div>
   </div>
@@ -1277,6 +1278,30 @@ const firstEmoji = s => {
 };
 function esc(s) { return String(s).replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c])); }
 function linkify(s) { return esc(s).replace(/(https?:\/\/[^\s<]+|[a-z0-9-]+\.[a-z]{2,}(\/[^\s<]*)?)/gi, m => { const u = /^https?:\/\//i.test(m) ? m : 'https://' + m; return `<a href="${u}" target="_blank" rel="noopener">${m}</a>`; }); }
+/* Fetch every page, not only the recent rows displayed by the app. */
+async function readFullTable(table) {
+  const rows=[];const pageSize=500;
+  for(let offset=0;;offset+=pageSize){
+    const {data,error}=await sb.from(table).select('*').order('id').range(offset,offset+pageSize-1);
+    if(error)throw error;
+    rows.push(...(data||[]));if((data||[]).length<pageSize)return rows;
+  }
+}
+async function exportBackup() {
+  const button=$('exportBackupBtn'),status=$('exportStatus'),owner=state.user?.id;
+  if(!owner)return;button.disabled=true;status.textContent='Gathering all records...';
+  try{
+    const tables=['money_accounts','money_goals','money_goal_items','money_transactions','money_subscriptions'];
+    const values=await Promise.all(tables.map(readFullTable));
+    if(state.user?.id!==owner)throw new Error('Signed-in account changed. Try again.');
+    const backup={format:'money-tracker-backup',version:1,exported_at:new Date().toISOString(),notes:'Manual records. Amounts keep their original currencies. No exchange conversion. Export only, not an import tool.',tables:Object.fromEntries(tables.map((t,i)=>[t,values[i]]))};
+    const blob=new Blob([JSON.stringify(backup,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob);
+    const a=document.createElement('a');a.href=url;a.download='money-backup-'+today()+'.json';document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);
+    status.textContent='Backup download started: '+values.map((v,i)=>v.length+' '+tables[i].replace('money_','')).join(', ')+'. Check your Downloads or share/save menu.';
+  }catch(e){status.textContent='Backup not downloaded: '+(e.message||'check your connection and try again');}
+  finally{button.disabled=false;}
+}
+$('exportBackupBtn').onclick=exportBackup;
 /* Deletes wait 15 seconds. Undo cancels the write, preserving IDs and related rows. */
 const pendingDeletes = new Map();
 function cancelPendingDeletes() {
