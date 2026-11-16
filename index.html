@@ -374,6 +374,7 @@
       <button data-f="spending">Spending</button>
       <button data-f="saving">Saving</button>
     </div>
+    <div class="field"><label for="txSearch">Search entries</label><input id="txSearch" type="search" placeholder="Name, source, amount, account or date" autocomplete="off"></div><p class="total-note" id="txSearchCount" role="status"></p>
     <div class="tx-list" id="allTx"></div>
   </div>
 </div>
@@ -849,8 +850,15 @@ function renderSpendingChart() {
 }
 function renderActivity() {
   renderSpendingChart();
-  const list = (state.filter === 'all' ? displayTxs() : displayTxs().filter(t => t.kind === state.filter));
-  $('allTx').innerHTML = list.length ? '' : '<div class="empty">No entries here yet.</div>';
+  const base = (state.filter === 'all' ? displayTxs() : displayTxs().filter(t => t.kind === state.filter));
+  const query=$('txSearch').value.trim().toLocaleLowerCase();
+  const list=base.filter(t=>{
+    if(!query)return true;
+    const a=state.accounts.find(a=>a.id===t.account_id),g=state.goals.find(g=>g.id===t.goal_id),dest=state.accounts.find(a=>a.id===t.to_account_id);
+    return [t.note,t.category,t.kind,t.occurred_on,fmtDate(t.occurred_on),a?.name,g?.name,dest?.name,String(t.amount),Number(t.amount).toFixed(2),moneyC(t.amount,acctCur(a))].join(' ').toLocaleLowerCase().includes(query);
+  });
+  $('txSearchCount').textContent=query?list.length+' matching '+(list.length===1?'entry':'entries')+' in this filter.':'';
+  $('allTx').innerHTML = list.length ? '' : '<div class="empty">'+(query?'No matching entries. Try another name, source, amount or filter.':'No entries here yet.')+'</div>';
   list.forEach(t => $('allTx').appendChild(txRow(t)));
 }
 function txRow(t) {
@@ -1527,6 +1535,7 @@ $('weekNow').onclick=()=>{summaryWeekOffset=0;renderWeeklySummary();};
 $('addSubBtn').onclick = () => openSubscription();
 $('spendMonth').onchange = renderSpendingChart;
 $('spendCurrency').onchange = renderSpendingChart;
+$('txSearch').oninput=renderActivity;
 $('addGoalBtn').onclick = () => openGoalSheet();
 
 init();
