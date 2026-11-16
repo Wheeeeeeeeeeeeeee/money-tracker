@@ -273,6 +273,11 @@
 .g-extra .g-x-row{display:flex;justify-content:space-between;gap:14px;font-size:13px;padding:5px 0;font-variant-numeric:tabular-nums}
 .g-extra .g-x-row span:last-child{text-align:right}
 .g-extra .g-x-note{color:var(--amber);font-size:11.5px;line-height:1.5;margin-top:8px}
+
+  button,.mini-btn,summary{min-height:44px;touch-action:manipulation}
+  button,input,select,textarea{font-size:max(16px,1em)}
+  .tx{flex-wrap:wrap}.tx .mid{min-width:120px}.tx .edit-tx{margin-left:auto}
+  #refreshIndicator{position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:80;border:1px solid var(--line);background:var(--card);color:var(--text);padding:12px 18px;border-radius:20px;font-size:13px;box-shadow:0 8px 24px #0004}
 </style>
 </head>
 <body>
@@ -327,6 +332,7 @@
     <details style="background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px;margin:20px 0"><summary style="font-weight:700;cursor:pointer">Weekly summary</summary><div style="display:flex;gap:12px;margin:12px 0"><button id="weekPrev" class="mini-btn">Previous week</button><button id="weekNow" class="mini-btn">This week</button></div><div id="weeklySummary"></div></details>
     <div class="section-head"><h2>Subscriptions</h2><button id="addSubBtn">+ Add</button></div>
     <div class="total-note" style="margin-bottom:10px">Manual reminders only. These do not charge money or create transactions.</div><div id="subscriptionSummary"></div><div id="subscriptionList"></div>
+    <p class="total-note" style="margin-top:16px">Pull down from the top to refresh, or use the button. <button class="mini-btn" id="refreshNow">Refresh recorded data</button></p><label class="total-note" style="display:flex;align-items:center;gap:10px;margin:14px 0"><input type="checkbox" id="hapticsOn" style="width:22px;height:22px"> Optional vibration feedback where supported. Many browsers, including iPhone browsers, may not vibrate.</label>
     <details style="margin:20px 0;background:var(--card);padding:16px;border:1px solid var(--line);border-radius:16px"><summary style="cursor:pointer;font-weight:700;min-height:32px">Backup &amp; tools</summary><p class="total-note">Download a private copy of your recorded accounts, goals, items, reminders and full transaction history. Keep it somewhere safe. No passwords are included.</p><button id="exportBackupBtn" class="btn" style="margin-top:12px">Download JSON backup</button><p class="total-note" id="exportStatus" role="status"></p></details>
     <details style="margin:20px 0;background:var(--card);padding:16px;border:1px solid var(--line);border-radius:16px"><summary style="cursor:pointer;font-weight:700;min-height:32px">Entry templates</summary><p class="total-note">Saved only in this browser for this signed-in user, not synced. Templates prefill the Add form. Check the date, account, amount and goals, then confirm each entry yourself. To create one, open + and choose Save as template.</p><div id="templateList"></div></details>
     <div class="section-head"><h2>Recent activity</h2></div>
@@ -463,6 +469,19 @@ $('loginBtn').onclick = async () => {
 $('password').addEventListener('keydown', e => { if (e.key === 'Enter') $('loginBtn').click(); });
 $('signOutBtn').onclick = async () => { cancelPendingDeletes(); await sb.auth.signOut(); };
 
+let refreshing=false,pullStart=null,pullDistance=0;
+async function refreshRecorded(){
+ if(refreshing||!state.user)return;if(document.querySelector('.sheet-bg'))return toast('Close the open form before refreshing.');
+ refreshing=true;let indicator=$('refreshIndicator');if(!indicator){indicator=document.createElement('div');indicator.id='refreshIndicator';indicator.setAttribute('role','status');document.body.append(indicator);}indicator.textContent='Refreshing recorded data...';
+ try{const ok=await loadAll();if(ok===false)throw new Error('refresh failed');indicator.textContent='Refresh finished';}catch(_){indicator.textContent='Could not refresh. Your entries are unchanged.';}finally{refreshing=false;setTimeout(()=>indicator.remove(),1200);}
+}
+$('refreshNow').onclick=refreshRecorded;
+try{$('hapticsOn').checked=localStorage.getItem('moneyHaptics')==='on';}catch(_){}
+$('hapticsOn').onchange=()=>{try{localStorage.setItem('moneyHaptics',$('hapticsOn').checked?'on':'off');}catch(_){toast('Could not save vibration preference.');}};
+document.addEventListener('click',e=>{if($('hapticsOn').checked&&e.target.closest('button')&&typeof navigator.vibrate==='function')try{navigator.vibrate(8);}catch(_){}},{passive:true});
+document.addEventListener('touchstart',e=>{pullDistance=0;pullStart=window.scrollY<=0&&state.user&&!document.querySelector('.sheet-bg')&&!e.target.closest('input,textarea,select,button,.tx,.acct-row')?{x:e.touches[0].clientX,y:e.touches[0].clientY}:null;},{passive:true});
+document.addEventListener('touchmove',e=>{if(!pullStart)return;const p=e.touches[0];if(Math.abs(p.clientX-pullStart.x)>40){pullStart=null;return;}pullDistance=Math.max(0,p.clientY-pullStart.y);},{passive:true});
+document.addEventListener('touchend',()=>{if(pullStart&&pullDistance>=110&&window.scrollY<=0)refreshRecorded();pullStart=null;pullDistance=0;},{passive:true});
 /* ---------- theme + tutorial ---------- */
 function applyTheme(t) {
   document.body.classList.toggle('light', t === 'light');
@@ -494,13 +513,13 @@ async function loadAll() {
     sb.from('money_goals').select('*').order('created_at'),
     readFullTable('money_transactions').then(data=>({data:data.sort((a,b)=>b.occurred_on.localeCompare(a.occurred_on)||String(b.created_at).localeCompare(String(a.created_at))),error:null})).catch(error=>({data:[],error})),
   ]);
-  if (a.error || g.error || t.error) { toast((a.error || g.error || t.error).message); return; }
+  if (a.error || g.error || t.error) { toast((a.error || g.error || t.error).message); return false; }
   state.accounts = a.data; state.goals = g.data; state.txs = t.data;
   const it = await sb.from('money_goal_items').select('*').order('created_at');
   state.items = it.error ? [] : it.data;
   const subs = await sb.from('money_subscriptions').select('*').order('next_due');
   state.subscriptions = subs.error ? [] : subs.data;
-  renderAll();
+  renderAll();return true;
 }
 const isAdjustment = t => t.category === 'Balance adjustment' && (t.note||'').startsWith('[Balance check]');
 const acctBalance = id => {
