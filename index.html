@@ -475,7 +475,7 @@ async function loadAll() {
   const [a, g, t] = await Promise.all([
     sb.from('money_accounts').select('*').order('sort_order').order('created_at'),
     sb.from('money_goals').select('*').order('created_at'),
-    sb.from('money_transactions').select('*').order('occurred_on', {ascending: false}).order('created_at', {ascending: false}).limit(300),
+    readFullTable('money_transactions').then(data=>({data:data.sort((a,b)=>b.occurred_on.localeCompare(a.occurred_on)||String(b.created_at).localeCompare(String(a.created_at))),error:null})).catch(error=>({data:[],error})),
   ]);
   if (a.error || g.error || t.error) { toast((a.error || g.error || t.error).message); return; }
   state.accounts = a.data; state.goals = g.data; state.txs = t.data;
@@ -485,6 +485,7 @@ async function loadAll() {
   state.subscriptions = subs.error ? [] : subs.data;
   renderAll();
 }
+const isAdjustment = t => t.category === 'Balance adjustment' && (t.note||'').startsWith('[Balance check]');
 const acctBalance = id => {
   const a = state.accounts.find(x => x.id === id);
   if (!a) return 0;
@@ -549,7 +550,7 @@ function renderHome() {
   let ein = 0, eout = 0;
   for (const t of state.txs) {
     if (!t.occurred_on.startsWith(month)) continue;
-    if (t.kind === 'transfer') continue;
+    if (t.kind === 'transfer' || isAdjustment(t)) continue;
     const ta = state.accounts.find(x => x.id === t.account_id);
     if (acctCur(ta) !== 'USD') continue;
     if (t.kind === 'earning') ein += Number(t.amount);
@@ -769,7 +770,7 @@ function displayTxs() {
   return out;
 }
 function renderIncome() {
-  const earn = state.txs.filter(t => t.kind === 'earning');
+  const earn = state.txs.filter(t => t.kind === 'earning' && !isAdjustment(t));
   const curOf = t => acctCur(state.accounts.find(x => x.id === t.account_id));
   const month = new Date().toISOString().slice(0, 7);
   const total = earn.filter(t => curOf(t) === 'USD').reduce((s, t) => s + Number(t.amount), 0);
@@ -804,7 +805,7 @@ function renderSpendingChart() {
   if (!$('spendMonth').value) $('spendMonth').value = today().slice(0, 7);
   const month = $('spendMonth').value, currency = select.value;
   const groups = {};
-  state.txs.filter(t => t.kind === 'spending' && t.occurred_on.startsWith(month) && acctCur(state.accounts.find(a => a.id === t.account_id)) === currency).forEach(t => {
+  state.txs.filter(t => !isAdjustment(t) && t.kind === 'spending' && t.occurred_on.startsWith(month) && acctCur(state.accounts.find(a => a.id === t.account_id)) === currency).forEach(t => {
     const c = t.category || 'Other'; groups[c] = (groups[c] || 0) + Number(t.amount);
   });
   const rows = Object.entries(groups).sort((a,b) => b[1] - a[1]);
@@ -1065,8 +1066,48 @@ function openAccountInfo(a) {
       <div class="ainfo-row"><span>Entries</span><b>${nTx}</b></div>
     </div>
     <div class="acct-note" style="margin:12px 2px 2px">Turn on Edit at the top of the screen to change this account.</div>
+    <button class="btn btn-primary" type="button" id="aiCheck">Check against real balance</button>
     <button class="btn btn-cancel" type="button" id="aiClose">Close</button>`);
   bg.querySelector('#aiClose').onclick = () => bg.remove();
+  bg.querySelector('#aiCheck').onclick=()=>{bg.remove();openBalanceCheck(a);};
+}
+async function readAccountBalance(id) {
+  const [{data,error},txs]=await Promise.all([sb.from('money_accounts').select('*').eq('id',id).single(),readFullTable('money_transactions')]);
+  if(error)throw error;
+  const entries=txs.filter(t=>t.account_id===id);
+  const cents=Math.round(Number(data.starting_balance)*100)+entries.reduce((n,t)=>n+((t.kind==='earning'||(t.kind==='transfer'&&t.direction==='in'))?1:-1)*Math.round(Number(t.amount)*100),0);
+  return {account:data,cents,version:JSON.stringify({account:data,entries})};
+}
+async function openBalanceCheck(a) {
+  const owner=state.user?.id;
+  const bg=openSheet(`<h3>Balance check: ${esc(a.name)}</h3><p class="total-note">Enter the balance you want recorded for this account, including any minimum you keep. If money in your real bank balance is already tracked separately in goals, subtract that goal money first to avoid counting it twice. This app does not connect to your bank. Goal savings are separate in this tracker. An adjustment changes only your recorded balance, not your bank.</p><p id="bcRecorded">Checking recorded balance...</p><div class="field"><label for="bcActual">Real balance (${esc(acctCur(a))})</label><input id="bcActual" type="number" step="0.01" inputmode="decimal" placeholder="0.00"></div><div class="field"><label for="bcNote">Note (optional)</label><input id="bcNote" maxlength="200" placeholder="Why the balance differs"></div><p id="bcPreview" class="total-note" role="status"></p><button class="btn btn-primary" id="bcReview" disabled>Review difference</button><button class="btn btn-primary hidden" id="bcConfirm">Confirm adjustment</button><button class="btn btn-cancel" id="bcCancel">Cancel</button><div id="bcError" class="err"></div>`);
+  let snapshot=null,reviewed=null;
+  const err=bg.querySelector('#bcError'),confirm=bg.querySelector('#bcConfirm'),review=bg.querySelector('#bcReview');
+  bg.querySelector('#bcCancel').onclick=()=>bg.remove();
+  const reset=()=>{reviewed=null;confirm.classList.add('hidden');bg.querySelector('#bcPreview').textContent='';};
+  bg.querySelector('#bcActual').oninput=reset;bg.querySelector('#bcNote').oninput=reset;
+  try{snapshot=await readAccountBalance(a.id);if(!bg.isConnected)return;bg.querySelector('#bcRecorded').textContent='Recorded full balance: '+moneyC(snapshot.cents/100,acctCur(snapshot.account));review.disabled=false;}
+  catch(e){err.textContent='Could not verify the recorded balance: '+e.message;return;}
+  review.onclick=()=>{
+    err.textContent='';const raw=bg.querySelector('#bcActual').value,actual=Math.round(Number(raw)*100);
+    if(raw===''||!Number.isSafeInteger(actual)){err.textContent='Enter the balance you checked.';return;}
+    const delta=actual-snapshot.cents;
+    reviewed={actual,delta,note:bg.querySelector('#bcNote').value.trim()};
+    bg.querySelector('#bcPreview').textContent=delta===0?'Your recorded balance already matches. Nothing will be added.':`Recorded ${moneyC(snapshot.cents/100,acctCur(a))} → ${moneyC(actual/100,acctCur(a))}. Adjustment: ${delta>0?'+':''}${moneyC(delta/100,acctCur(a))}. Adds a clearly labeled balance adjustment, not income or spending in charts. Your prior entries stay unchanged.`;
+    confirm.classList.toggle('hidden',delta===0);
+  };
+  confirm.onclick=async()=>{
+    if(!reviewed||state.user?.id!==owner)return;confirm.disabled=true;review.disabled=true;err.textContent='';
+    try{
+      if([...pendingDeletes.keys()].some(k=>k.startsWith('tx:')||k==='account:'+a.id))throw new Error('Finish or undo pending deletions before checking a balance.');
+      const current=await readAccountBalance(a.id);
+      if(current.version!==snapshot.version){snapshot=current;reset();bg.querySelector('#bcRecorded').textContent='Recorded full balance: '+moneyC(current.cents/100,acctCur(current.account));throw new Error('Records changed. Review the difference again before confirming.');}
+      if(state.user?.id!==owner)throw new Error('Signed-in account changed. Cancel and try again.');
+      const {error}=await sb.from('money_transactions').insert({account_id:a.id,kind:reviewed.delta>0?'earning':'spending',amount:Math.abs(reviewed.delta)/100,category:'Balance adjustment',note:'[Balance check] '+(reviewed.note||'Recorded balance matched to your entered balance'),occurred_on:today()});
+      if(error)throw error;bg.remove();toast('Recorded balance adjusted');await loadAll();
+    }catch(e){err.textContent=e.message||'Could not save the adjustment';}
+    finally{confirm.disabled=false;review.disabled=false;}
+  };
 }
 function openAccountSheet(a = null) {
   const icons = ['🏦', '💸', '📱', '🍎', '💳', '🐷', '🪙', '💵', '💶', '💷'];
