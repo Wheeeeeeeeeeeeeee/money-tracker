@@ -321,7 +321,8 @@
     <details style="margin:16px 0;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px"><summary style="cursor:pointer;min-height:32px;font-weight:700">Spending watchlist</summary><p class="total-note">Pin one category's current-month total here. This browser only. No budget or limit assumed.</p><div class="row2"><div class="field"><label for="watchCategory">Category</label><select id="watchCategory"><option value="">Choose a category</option></select></div><div class="field"><label for="watchCurrency">Currency</label><select id="watchCurrency"></select></div></div><div id="watchResult" role="status"></div></details>
     <div id="nextGoal" style="margin:16px 0"></div>
     <div class="section-head"><h2>Accounts</h2><button id="addAcctBtn">+ Add</button></div>
-    <div class="acct-row" id="acctRow"></div>
+    <button id="foreignToggle" class="mini-btn" style="min-height:44px;margin-bottom:8px"></button><div class="acct-row" id="acctRow"></div>
+    <details style="margin:12px 0;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px"><summary style="cursor:pointer;min-height:32px">Arrange account cards</summary><p class="total-note">Colors and order save in this browser for this user. Use arrows or drag handles to reorder. Names, icons and recorded balances are unchanged.</p><div id="accountArrange"></div></details>
     <details style="background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px;margin:20px 0"><summary style="font-weight:700;cursor:pointer">Weekly summary</summary><div style="display:flex;gap:12px;margin:12px 0"><button id="weekPrev" class="mini-btn">Previous week</button><button id="weekNow" class="mini-btn">This week</button></div><div id="weeklySummary"></div></details>
     <div class="section-head"><h2>Subscriptions</h2><button id="addSubBtn">+ Add</button></div>
     <div class="total-note" style="margin-bottom:10px">Manual reminders only. These do not charge money or create transactions.</div><div id="subscriptionSummary"></div><div id="subscriptionList"></div>
@@ -515,7 +516,7 @@ const acctMin = a => (a && a.minimum_balance != null) ? Number(a.minimum_balance
 const acctUsable = a => acctBalance(a.id) - (acctMin(a) || 0);
 
 /* ---------- render ---------- */
-function renderAll() { renderWeeklySummary(); renderSubscriptions(); renderHome(); renderTotal(); renderGoals(); renderIncome(); renderActivity(); renderFx(); renderTemplates(); renderBalanceHistory(); renderGoalOrder(); renderWatchlist(); }
+function renderAll() { renderWeeklySummary(); renderSubscriptions(); renderHome(); renderTotal(); renderGoals(); renderIncome(); renderActivity(); renderFx(); renderTemplates(); renderBalanceHistory(); renderGoalOrder(); renderWatchlist(); renderAccountArrange(); }
 let summaryWeekOffset = 0;
 function renderWeeklySummary() {
   const start=new Date(savingsWeek(today())+'T00:00:00Z');start.setUTCDate(start.getUTCDate()+summaryWeekOffset*7);
@@ -592,10 +593,13 @@ function renderHome() {
   $('totalSub').textContent = `This month: ${money(ein)} in · ${money(eout)} out`;
 
   $('acctRow').innerHTML = state.accounts.length ? '' : '<div class="empty" style="width:100%">No accounts yet. Add one - like Bank of America, Cash App or Apple Pay - with your current balance.</div>';
-  for (const a of state.accounts) {
+  const foreignCount=state.accounts.filter(a=>acctCur(a)!=='USD').length;
+  $('foreignToggle').textContent=(foreignExpanded?'Hide other currencies':'More: other currencies')+' ('+foreignCount+')';$('foreignToggle').classList.toggle('hidden',!foreignCount);
+  for (const a of orderedAccounts().filter(a=>foreignExpanded||acctCur(a)==='USD')) {
     const bal = acctBalance(a.id);
     const d = document.createElement('div');
     d.className = 'acct-card';
+    const color=accountLayout().colors?.[a.id];if(ACCOUNT_COLORS.includes(color)){d.style.borderColor=color;d.style.borderTopWidth='4px';}
     const amin = acctMin(a);
     const minNote = `<div class="acct-note">Must have a minimum of ${moneyC(amin || 0, acctCur(a))} in account</div>`;
     if (amin) {
@@ -1395,6 +1399,1541 @@ const firstEmoji = s => {
 };
 function esc(s) { return String(s).replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c])); }
 function linkify(s) { return esc(s).replace(/(https?:\/\/[^\s<]+|[a-z0-9-]+\.[a-z]{2,}(\/[^\s<]*)?)/gi, m => { const u = /^https?:\/\//i.test(m) ? m : 'https://' + m; return `<a href="${u}" target="_blank" rel="noopener">${m}</a>`; }); }
+let foreignExpanded=false;
+const ACCOUNT_COLORS=['#34dc8a','#49a8ff','#a98bff','#f5ae48','#ed7198','#72d5d1'];
+function accountLayout(){try{const value=JSON.parse(localStorage.getItem('moneyAccountLayout:'+state.user?.id)||'{}');return value&&typeof value==='object'?value:{};}catch(_){return {};}}
+function orderedAccounts(){const ids=accountLayout().order||[];return [...state.accounts].sort((a,b)=>{const x=ids.indexOf(a.id),y=ids.indexOf(b.id);return(x<0?9999:x)-(y<0?9999:y);});}
+function saveAccountLayout(value){try{localStorage.setItem('moneyAccountLayout:'+state.user.id,JSON.stringify(value));renderHome();renderAccountArrange();}catch(_){toast('Could not save account layout in this browser.');}}
+function renderAccountArrange(){
+ const box=$('accountArrange');if(!box)return;const accounts=orderedAccounts();box.innerHTML='';
+ accounts.forEach((a,i)=>{const row=document.createElement('div');row.style.cssText='border-top:1px solid var(--line);padding:12px 0';row.innerHTML=`<div style="display:flex;gap:8px;align-items:center"><span class="account-drag" draggable="true" role="button" tabindex="0" aria-label="Drag ${esc(a.name)} to reorder" style="padding:10px;cursor:grab">☰</span><span style="flex:1;font-size:13px">${esc(a.name)} · ${esc(acctCur(a))}</span><button class="up mini-btn" style="min-width:44px;min-height:44px" aria-label="Move ${esc(a.name)} up" ${i===0?'disabled':''}>↑</button><button class="down mini-btn" style="min-width:44px;min-height:44px" aria-label="Move ${esc(a.name)} down" ${i===accounts.length-1?'disabled':''}>↓</button></div><div style="display:flex;flex-wrap:wrap;gap:6px" class="colors">${ACCOUNT_COLORS.map(c=>`<button style="background:${c};border:2px solid ${accountLayout().colors?.[a.id]===c?'var(--text)':'transparent'};border-radius:50%;width:36px;height:36px" data-color="${c}" aria-label="Set ${esc(a.name)} color ${c}"></button>`).join('')}<button class="reset mini-btn" style="min-height:36px">Reset color</button></div>`;
+ const move=delta=>{const value=accountLayout(),ids=accounts.map(a=>a.id);[ids[i],ids[i+delta]]=[ids[i+delta],ids[i]];value.order=ids;saveAccountLayout(value);};row.querySelector('.up').onclick=()=>move(-1);row.querySelector('.down').onclick=()=>move(1);
+ row.querySelector('.account-drag').ondragstart=e=>{e.dataTransfer.setData('text/plain',a.id);e.dataTransfer.effectAllowed='move';};row.ondragover=e=>e.preventDefault();row.ondrop=e=>{e.preventDefault();const from=e.dataTransfer.getData('text/plain'),value=accountLayout(),ids=accounts.map(a=>a.id);if(!ids.includes(from)||from===a.id)return;ids.splice(ids.indexOf(from),1);ids.splice(ids.indexOf(a.id),0,from);value.order=ids;saveAccountLayout(value);};
+ row.querySelectorAll('[data-color]').forEach(b=>b.onclick=()=>{const value=accountLayout();value.colors={...value.colors,[a.id]:b.dataset.color};saveAccountLayout(value);});row.querySelector('.reset').onclick=()=>{const value=accountLayout();if(value.colors)delete value.colors[a.id];saveAccountLayout(value);};box.append(row);});
+}
+$('foreignToggle').onclick=()=>{foreignExpanded=!foreignExpanded;renderHome();};
+function watchChoice(){try{return JSON.parse(localStorage.getItem('moneyWatchlist:'+state.user?.id)||'null');}catch(_){return null;}}
+function renderWatchlist(){
+  const cat=$('watchCategory'),cur=$('watchCurrency');if(!cat)return;const choice=watchChoice();
+  const categories=[...new Set([...(CATS.spending||[]),...state.txs.filter(t=>t.kind==='spending'&&!isAdjustment(t)).map(t=>t.category||'Other')])].sort();
+  cat.innerHTML='<option value="">Choose a category</option>'+categories.map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join('');cat.value=choice?.category||'';
+  const currencies=[...new Set(state.accounts.map(acctCur))];cur.innerHTML=currencies.map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join('');cur.value=currencies.includes(choice?.currency)?choice.currency:(currencies.includes('USD')?'USD':currencies[0]||'');
+  if(!cat.value){$('watchResult').innerHTML='<p class="total-note">No category pinned. Choose one above.</p>';return;}
+  const month=today().slice(0,7),rows=state.txs.filter(t=>t.kind==='spending'&&!isAdjustment(t)&&(t.category||'Other')===cat.value&&t.occurred_on.startsWith(month)&&acctCur(state.accounts.find(a=>a.id===t.account_id))===cur.value),total=rows.reduce((n,t)=>n+Number(t.amount),0);
+  $('watchResult').innerHTML=`<div style="font-size:24px;font-weight:800">${moneyC(total,cur.value)}</div><div class="total-note">${esc(cat.value)} · ${esc(month)} · ${rows.length} recorded ${rows.length===1?'entry':'entries'}</div>`;
+}
+for(const id of ['watchCategory','watchCurrency'])$(id).onchange=()=>{try{localStorage.setItem('moneyWatchlist:'+state.user.id,JSON.stringify({category:$('watchCategory').value,currency:$('watchCurrency').value}));renderWatchlist();}catch(_){toast('Could not save watchlist in this browser.');}};
+function goalOrderIds(){try{const ids=JSON.parse(localStorage.getItem('moneyGoalOrder:'+state.user?.id)||'[]');return Array.isArray(ids)?ids:[];}catch(_){return [];}}
+function orderedGoals(){const ids=goalOrderIds();return [...state.goals].sort((a,b)=>{const x=ids.indexOf(a.id),y=ids.indexOf(b.id);return(x<0?9999:x)-(y<0?9999:y);});}
+function saveGoalOrder(ids){try{localStorage.setItem('moneyGoalOrder:'+state.user.id,JSON.stringify(ids));renderGoals();renderGoalOrder();}catch(_){toast('Could not save order in this browser.');}}
+function renderGoalOrder(){
+  const box=$('goalOrderList');if(!box)return;const goals=orderedGoals();box.innerHTML='';
+  goals.forEach((g,index)=>{const row=document.createElement('div');row.style.cssText='display:flex;align-items:center;gap:8px;border-top:1px solid var(--line);padding:10px 0';row.innerHTML=`<span class="drag-handle" draggable="true" role="button" tabindex="0" aria-label="Drag ${esc(g.name)} to reorder" style="padding:10px;cursor:grab">☰</span><span style="flex:1;font-size:13px">${index+1}. ${esc(g.name)}</span><button class="up mini-btn" aria-label="Move ${esc(g.name)} up" style="min-width:44px;min-height:44px" ${index===0?'disabled':''}>↑</button><button class="down mini-btn" aria-label="Move ${esc(g.name)} down" style="min-width:44px;min-height:44px" ${index===goals.length-1?'disabled':''}>↓</button>`;
+    const move=delta=>{const ids=goals.map(g=>g.id);[ids[index],ids[index+delta]]=[ids[index+delta],ids[index]];saveGoalOrder(ids);};row.querySelector('.up').onclick=()=>move(-1);row.querySelector('.down').onclick=()=>move(1);
+    row.querySelector('.drag-handle').ondragstart=e=>{e.dataTransfer.setData('text/plain',g.id);e.dataTransfer.effectAllowed='move';};row.ondragover=e=>e.preventDefault();row.ondrop=e=>{e.preventDefault();const from=e.dataTransfer.getData('text/plain'),ids=goals.map(g=>g.id);if(!ids.includes(from)||from===g.id)return;ids.splice(ids.indexOf(from),1);ids.splice(ids.indexOf(g.id),0,from);saveGoalOrder(ids);};box.append(row);
+  });
+  const next=goals[0],home=$('nextGoal');home.innerHTML=next?`<div style="background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px"><div class="total-note">Next up · your goal order</div><b>${esc(next.name)}</b><div class="total-note">${money(goalSaved(next.id))} saved${Number(next.target)>0?' of '+money(Number(next.target)):''}</div><button class="mini-btn" id="nextGoalOpen" style="min-height:44px">View goal</button></div>`:'';
+  if(next)$('nextGoalOpen').onclick=()=>{document.querySelector('nav.tabs button[data-tab="goals"]').click();};
+}
+function balanceHistoryPoints(days) {
+  const usd=state.accounts.filter(a=>acctCur(a)==='USD'),todayKey=today();
+  if(!usd.length)return [];
+  const birth=new Map(usd.map(a=>{const dates=[a.created_at?.slice(0,10),...state.txs.filter(t=>t.account_id===a.id).map(t=>t.occurred_on)].filter(d=>d&&d<=todayKey);return[a.id,dates.sort()[0]||todayKey];}));
+  const earliest=[...birth.values()].sort()[0],start=new Date(todayKey+'T00:00:00Z');start.setUTCDate(start.getUTCDate()-days+1);
+  let date=start.toISOString().slice(0,10);if(date<earliest)date=earliest;
+  const points=[];
+  for(let day=new Date(date+'T00:00:00Z');day.toISOString().slice(0,10)<=todayKey;day.setUTCDate(day.getUTCDate()+1)){
+    const key=day.toISOString().slice(0,10);let cents=0;
+    for(const a of usd){if(key<birth.get(a.id))continue;cents+=Math.round(Number(a.starting_balance)*100)-Math.round((acctMin(a)||0)*100);
+      for(const t of state.txs.filter(t=>t.account_id===a.id&&t.occurred_on<=key)){
+        const value=Math.round(Number(t.amount)*100);cents+=((t.kind==='earning'||(t.kind==='transfer'&&t.direction==='in'))?1:-1)*value;
+        if(t.kind==='saving'&&state.goals.some(g=>g.id===t.goal_id))cents+=value;
+      }
+    }points.push({date:key,value:cents/100});
+  }return points;
+}
+function renderBalanceHistory(){
+  const box=$('balanceChart');if(!box)return;const points=balanceHistoryPoints(Number($('balanceRange').value)||30);
+  if(!points.length){box.textContent='No recorded USD accounts yet.';return;}
+  const low=Math.min(...points.map(p=>p.value)),high=Math.max(...points.map(p=>p.value)),span=high-low||1;
+  const xy=points.map((p,i)=>({x:points.length===1?180:48+i/(points.length-1)*300,y:high===low?92:24+(high-p.value)/span*120,...p}));
+  const last=points[points.length-1];
+  box.innerHTML=`<p style="font-size:22px;font-weight:800">${money(last.value)} <span style="font-size:12px;color:var(--dim)">current recorded USD</span></p><svg viewBox="0 0 360 184" style="width:100%;height:auto;display:block" role="img" aria-label="Reconstructed recorded USD balance from ${esc(points[0].date)} to ${esc(last.date)}"><line x1="48" y1="154" x2="348" y2="154" stroke="var(--line)"/><text x="0" y="22" fill="var(--dim)" font-size="11">${money(high)}</text><text x="0" y="151" fill="var(--dim)" font-size="11">${money(low)}</text><polyline points="${xy.map(p=>p.x+','+p.y).join(' ')}" fill="none" stroke="var(--accent)" stroke-width="3" stroke-linejoin="round"/>${xy.map(p=>`<circle cx="${p.x}" cy="${p.y}" r="3" fill="var(--accent)"><title>${esc(p.date)}: ${money(p.value)}</title></circle>`).join('')}<text x="48" y="176" fill="var(--dim)" font-size="11">${esc(fmtDate(points[0].date))}</text><text x="348" y="176" text-anchor="end" fill="var(--dim)" font-size="11">${esc(fmtDate(last.date))}</text></svg><p class="total-note">Uses current minimums. Goal savings counted once. Starts where recorded account/entry dates begin.</p><details style="margin-top:12px"><summary style="cursor:pointer;min-height:32px">Daily values</summary>${points.map(p=>`<div style="display:flex;justify-content:space-between;font-size:12px;padding:5px 0"><span>${esc(p.date)}</span><span>${money(p.value)}</span></div>`).join('')}</details>`;
+}
+$('balanceRange').onchange=renderBalanceHistory;
+function readTemplates(){try{const items=JSON.parse(localStorage.getItem('moneyTemplates:'+state.user?.id)||'[]');return Array.isArray(items)?items:[];}catch(_){return [];}}
+function writeTemplates(items){localStorage.setItem('moneyTemplates:'+state.user.id,JSON.stringify(items));}
+function templateValid(t){
+  if(!state.accounts.some(a=>a.id===t.account_id))return false;
+  const ids=[t.goal_id,t.cents?t.cents_goal:null,...Object.entries(t.percent||{}).filter(([,v])=>Number(v)>0).map(([id])=>id)].filter(Boolean);
+  if(ids.some(id=>!state.goals.some(g=>g.id===id)))return false;
+  return (t.destinations||[]).every(d=>{const [type,id]=d.target.split(':');return(type==='acct'?state.accounts:state.goals).some(x=>x.id===id);});
+}
+function renderTemplates(){
+  const box=$('templateList');if(!box)return;const items=readTemplates();box.innerHTML=items.length?'':'<p class="total-note">No saved templates yet.</p>';
+  for(const t of items){const row=document.createElement('div');row.style.cssText='border-top:1px solid var(--line);padding:12px 0';row.innerHTML=`<b style="display:block;font-size:14px">${esc(t.name)}</b><div class="total-note" style="margin:5px 0">${esc(t.kind)} · ${esc(state.accounts.find(a=>a.id===t.account_id)?.name||'Missing account')} · ${t.kind==='transfer'?'Review destinations':t.amount==null?'Amount each time':esc(moneyC(t.amount,acctCur(state.accounts.find(a=>a.id===t.account_id))))}</div><div style="display:flex;gap:8px"><button class="btn use-template" style="flex:1;min-height:44px">Review &amp; use</button><button class="btn delete-template" style="min-height:44px;color:var(--red)">Delete</button></div>`;
+    row.querySelector('.use-template').onclick=()=>{if(!templateValid(t))return toast('An account or goal is missing. Recreate this template with current choices.');openEntrySheet(t.kind,t.goal_id,t);};
+    row.querySelector('.delete-template').onclick=()=>queueDelete('template:'+t.id,'Template: '+t.name,async()=>{writeTemplates(readTemplates().filter(i=>i.id!==t.id));renderTemplates();return {error:null};});box.append(row);
+  }
+}
+function costPlanHtml(price,shipping,fees,unknownItems=false) {
+  const parts=[['Item price',price],['Shipping',shipping],['Extra fees / tax',fees]];
+  const valid=v=>v!=null&&Number.isFinite(Number(v))&&Number(v)>=0;
+  const known=parts.filter(([,v])=>valid(v)).reduce((n,[,v])=>n+Math.round(Number(v)*100),0)/100;
+  const complete=parts.every(([,v])=>valid(v))&&!unknownItems;
+  return `<div class="g-extra" style="margin-bottom:16px"><div class="g-x-t">Purchase cost planner · USD</div>${parts.map(([name,v])=>`<div class="g-x-row"><span>${name}${name==='Item price'&&unknownItems?' (partial)':''}</span><span>${valid(v)?money(Number(v)):(name==='Item price'?'Unknown':'Calculated at checkout')}</span></div>`).join('')}<div class="g-x-row" style="border-top:1px solid var(--line);margin-top:7px;padding-top:8px;font-weight:700"><span>${complete?'Estimated purchase total':'Known subtotal only'}</span><span>${money(known)}</span></div>${complete?'':'<div class="g-x-note">Full total unknown until every item, shipping and fees are known. Blank is unknown, not $0.</div>'}<div class="g-x-note">Planning only. Verify at checkout. Shipping and fees stay separate from the item-only goal target and progress bars.</div></div>`;
+}
+const fx={enabled:false,loading:false,cache:null,error:''};
+try{fx.cache=JSON.parse(localStorage.getItem('moneyFxRatesV2')||'null');if(!Array.isArray(fx.cache?.rates)||!Number.isFinite(fx.cache?.fetchedAt))fx.cache=null;}catch(_){}
+async function loadFx() {
+  if(fx.loading)return;
+  if(fx.cache&&Date.now()-fx.cache.fetchedAt<12*3600000){renderFx();return;}
+  fx.loading=true;fx.error='';renderFx();
+  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),15000);
+  try{
+    const response=await fetch('https://api.frankfurter.dev/v2/rates?base=usd',{signal:controller.signal});
+    if(!response.ok)throw new Error('Rate service unavailable');
+    const rates=await response.json();if(!Array.isArray(rates))throw new Error('Unexpected rate response');
+    const valid=rates.filter(r=>r.base==='USD'&&/^[A-Z]{3}$/.test(r.quote)&&/^\d{4}-\d{2}-\d{2}$/.test(r.date)&&Number(r.rate)>0&&Number.isFinite(Number(r.rate)));
+    if(!valid.length)throw new Error('No usable rates returned');
+    fx.cache={fetchedAt:Date.now(),rates:valid};try{localStorage.setItem('moneyFxRatesV2',JSON.stringify(fx.cache));}catch(_){}
+  }catch(e){fx.error=fx.cache?'Could not refresh. Showing cached rates with their dates.':'Rates unavailable. Your recorded balances are unchanged.';}
+  finally{clearTimeout(timer);fx.loading=false;renderFx();}
+}
+function renderFx() {
+  const box=$('fxResult');if(!box)return;
+  if(!fx.enabled){box.textContent='Off by default. Turn on to see an estimate.';return;}
+  if(!fx.cache){box.textContent=fx.loading?'Loading reference rates...':fx.error;return;}
+  const groups={};for(const a of state.accounts)if(acctCur(a)!=='USD')groups[acctCur(a)]=(groups[acctCur(a)]||0)+acctUsable(a);
+  let estimate=state.accounts.filter(a=>acctCur(a)==='USD').reduce((n,a)=>n+acctUsable(a),0)+state.goals.reduce((n,g)=>n+goalSaved(g.id),0),missing=[];
+  const rows=Object.entries(groups).map(([currency,amount])=>{
+    const rate=fx.cache.rates.find(r=>r.quote===currency);
+    if(!rate){missing.push(currency);return `<p>${esc(currency)}: no rate available, excluded.</p>`;}
+    const value=amount/Number(rate.rate);estimate+=value;
+    const age=(Date.now()-new Date(rate.date+'T00:00:00Z').getTime())/86400000;
+    return `<div style="padding:10px 0;border-bottom:1px solid var(--line);font-size:13px"><b>${esc(moneyC(amount,currency))} ≈ ${money(value)} USD</b><br><span style="color:var(--dim)">1 ${esc(currency)} = ${(1/Number(rate.rate)).toPrecision(6)} USD · ${esc(rate.date)}${age>7?' · Older than 7 days':''}</span></div>`;
+  });
+  box.innerHTML=`<div style="font-size:24px;font-weight:800">≈ ${money(estimate)} USD</div><p class="total-note">${missing.length?'Partial estimate. Excludes '+esc(missing.join(', '))+'.':'Estimated spending money plus goal savings across all currencies.'} Minimum balances excluded. Goal savings counted once.</p>${rows.join('')}<p class="total-note" style="margin-top:10px">Source: <a href="https://frankfurter.dev/" style="color:var(--accent)" target="_blank" rel="noopener">Frankfurter blended reference rates</a>. Rate dates shown above. Fetched ${esc(new Date(fx.cache.fetchedAt).toLocaleString())}. ${esc(fx.error)}</p>`;
+}
+$('fxToggle').onchange=()=>{fx.enabled=$('fxToggle').checked;if(fx.enabled)loadFx();renderFx();};
+/* Fetch every page, not only the recent rows displayed by the app. */
+async function readFullTable(table) {
+  const rows=[];const pageSize=500;
+  for(let offset=0;;offset+=pageSize){
+    const {data,error}=await sb.from(table).select('*').order('id').range(offset,offset+pageSize-1);
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0a0e13">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<title>Money</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root{
+    --bg:#0a0e13; --card:#12181f; --card2:#18222c; --line:#232f3b;
+    --text:#eef4f9; --dim:#8fa1b3; --accent:#4ade80; --accent-dim:#16301f;
+    --red:#f87171; --red-dim:#331b1b; --blue:#60a5fa;
+    --blue-dim:#14273a; --purple:#c4b5fd; --purple-dim:#241a33;
+    --amber:#fbbf24; --amber-dim:#241d0e; --amber-line:#3d3012; --blue-line:#21405c;
+    --on-accent:#06220f; --total-a:#123a24; --total-b:#0f2a3a; --total-label:#9fd8b4;
+    --green-well:#1c2b22; --nav-bg:rgba(14,19,25,.92);
+  }
+  body.light{
+    --bg:#f4f6f9; --card:#ffffff; --card2:#eaeff4; --line:#d7e0e8;
+    --text:#16222e; --dim:#5d6d7c; --accent:#15803d; --accent-dim:#d6f2e1;
+    --red:#dc2626; --red-dim:#fbe0e0; --blue:#1d6ae0;
+    --blue-dim:#dce9fb; --purple:#7c3aed; --purple-dim:#ebe3fa;
+    --amber:#b45309; --amber-dim:#fbeed3; --amber-line:#ecd9a8; --blue-line:#bcd3f0;
+    --on-accent:#ffffff; --total-a:#d8eedf; --total-b:#d9e9f4; --total-label:#1f6b3f;
+    --green-well:#d6f2e1; --nav-bg:rgba(255,255,255,.92);
+  }
+  body.light input[type=date]{color-scheme:light}
+  *{box-sizing:border-box; margin:0; padding:0; -webkit-tap-highlight-color:transparent}
+  html,body{height:100%}
+  body{
+    background:var(--bg); color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,sans-serif;
+    font-size:16px; line-height:1.4;
+  }
+  button{font:inherit; color:inherit; background:none; border:none; cursor:pointer}
+  input,select,textarea{font:inherit; color:var(--text); background:var(--card2); border:1px solid var(--line); border-radius:12px; padding:12px 14px; width:100%; outline:none}
+  input:focus,select:focus{border-color:var(--accent)}
+  input[type=date]{color-scheme:dark}
+  .hidden{display:none!important}
+
+  /* ---------- login ---------- */
+  #loginView{max-width:380px; margin:0 auto; padding:80px 24px; text-align:center}
+  #loginView .logo{font-size:44px; margin-bottom:8px}
+  #loginView h1{font-size:26px; font-weight:700; letter-spacing:.3px}
+  #loginView p.sub{color:var(--dim); margin:6px 0 28px}
+  #loginView input{margin-bottom:12px; text-align:left}
+  .btn{display:block; width:100%; padding:14px; border-radius:14px; font-weight:600; text-align:center}
+  .btn-primary{background:var(--accent); color:var(--on-accent)}
+  .btn-primary:active{filter:brightness(.9)}
+  .err{color:var(--red); font-size:14px; margin-top:12px; min-height:18px}
+
+  /* ---------- app shell ---------- */
+  #appView{max-width:560px; margin:0 auto; padding:0 16px 110px}
+  header.top{display:flex; justify-content:space-between; align-items:center; padding:calc(18px + env(safe-area-inset-top, 0px)) 4px 6px}
+  header.top .wordmark{font-weight:800; font-size:19px; letter-spacing:.4px}
+  header.top .wordmark span{color:var(--accent)}
+  #signOutBtn{color:var(--dim); font-size:14px; padding:6px 8px}
+  header.top .top-actions{display:flex; align-items:center; gap:2px}
+  header.top .top-actions button{color:var(--dim); font-size:14px; padding:6px 8px}
+  #tutorialBtn{font-weight:700; border:1px solid var(--line); border-radius:99px; width:28px; height:28px; padding:0!important; display:flex; align-items:center; justify-content:center; margin-right:2px}
+  #editBtn{font-weight:700; font-size:13px!important; border:1px solid var(--line); border-radius:99px; padding:5px 12px!important; margin-right:2px}
+  body.editing #editBtn{color:var(--accent); border-color:var(--accent); background:var(--accent-dim)}
+  body:not(.editing) .g-edit, body:not(.editing) .g-del{display:none}
+  .ainfo{background:var(--card2); border:1px solid var(--line); border-radius:14px; padding:6px 14px; margin-bottom:4px}
+  .ainfo-row{display:flex; justify-content:space-between; gap:12px; padding:9px 0; font-size:15px}
+  .ainfo-row+.ainfo-row{border-top:1px solid var(--line)}
+  .ainfo-row span{color:var(--dim)}
+  .ainfo-row b{font-variant-numeric:tabular-nums; text-align:right}
+  #themeBtn{font-size:16px!important; padding:4px 6px!important}
+  #tutorialBox{background:var(--card); border:1px solid var(--line); border-radius:16px; padding:14px 16px; margin:8px 0 4px; font-size:13.5px; color:var(--dim); line-height:1.55}
+  #tutorialBox b{color:var(--text)}
+  #tutorialBox ul{padding-left:18px; margin-top:6px}
+  #tutorialBox li{margin:5px 0}
+  .acct-card .acct-all{color:var(--text); font-size:12.5px; font-weight:600; margin-top:6px; font-variant-numeric:tabular-nums}
+
+  .total-card{
+    background:linear-gradient(135deg,var(--total-a) 0%, var(--total-b) 100%);
+    border:1px solid var(--line); border-radius:22px; padding:24px 22px; margin:14px 0 20px;
+  }
+  .total-card .label{color:var(--total-label); font-size:13px; text-transform:uppercase; letter-spacing:1.2px}
+  .total-card .amount{font-size:42px; font-weight:800; margin-top:4px; font-variant-numeric:tabular-nums}
+  .total-card .sub{color:var(--dim); font-size:13px; margin-top:6px}
+
+  .section-head{display:flex; justify-content:space-between; align-items:center; margin:22px 2px 10px}
+  .section-head h2{font-size:16px; font-weight:700}
+  .section-head button{color:var(--accent); font-size:14px; font-weight:600}
+
+  .acct-row{display:flex; gap:12px; overflow-x:auto; padding:2px 2px 8px; scrollbar-width:none}
+  .acct-row::-webkit-scrollbar{display:none}
+  .acct-card{min-width:150px; background:var(--card); border:1px solid var(--line); border-radius:18px; padding:16px; flex-shrink:0}
+  .acct-card .icon{font-size:22px}
+  .acct-card .name{color:var(--dim); font-size:13px; margin-top:8px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  .acct-card .bal{font-size:20px; font-weight:700; margin-top:2px; font-variant-numeric:tabular-nums}
+  .acct-card .bal.neg{color:var(--red)}
+  .acct-card .avail{color:var(--dim); font-size:11px; margin-top:1px}
+
+  .tx-list{display:flex; flex-direction:column; gap:8px}
+  .tx{display:flex; align-items:center; gap:12px; background:var(--card); border:1px solid var(--line); border-radius:16px; padding:12px 14px}
+  .tx .bubble{width:38px; height:38px; border-radius:12px; display:flex; align-items:center; justify-content:center; font-size:17px; flex-shrink:0}
+  .tx .bubble.earning{background:var(--accent-dim); color:var(--accent)}
+  .tx .bubble.spending{background:var(--red-dim); color:var(--red)}
+  .tx .bubble.saving{background:var(--blue-dim); color:var(--blue)}
+  .tx .bubble.transfer{background:var(--purple-dim); color:var(--purple)}
+  .tx .amt.transfer{color:var(--purple)}
+  .tx .mid{flex:1; min-width:0}
+  .tx .mid .t1{font-weight:600; font-size:15px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  .tx .mid .t2{color:var(--dim); font-size:12.5px; margin-top:1px}
+  .tx .amt{font-weight:700; font-variant-numeric:tabular-nums; white-space:nowrap}
+  .tx .amt.earning{color:var(--accent)}
+  .tx .amt.spending{color:var(--red)}
+  .tx .amt.saving{color:var(--blue)}
+  .tx .del{color:var(--dim); font-size:18px; padding:4px 2px 4px 8px}
+
+  .goal-card{background:var(--card); border:1px solid var(--line); border-radius:18px; padding:16px; margin-bottom:12px}
+  .goal-card .g-top{display:flex; align-items:center; gap:12px}
+  .goal-card .g-emoji{font-size:26px}
+  .goal-card .g-mid{flex:1; min-width:0}
+  .goal-card .g-name{font-weight:700}
+  .goal-card .g-nums{color:var(--dim); font-size:13px; margin-top:2px; font-variant-numeric:tabular-nums}
+  .goal-card .g-add{color:var(--accent); font-weight:700; font-size:14px; border:1px solid var(--accent-dim); background:var(--accent-dim); padding:8px 14px; border-radius:12px}
+  .goal-card .bar{height:8px; background:var(--card2); border-radius:99px; margin-top:12px; overflow:hidden}
+  .goal-card .bar i{display:block; height:100%; background:var(--accent); border-radius:99px; transition:width .4s}
+  .goal-card .bar.afford{margin-top:6px}
+  .goal-card .bar.afford i{background:var(--blue)}
+  .goal-card .g-aff{font-size:11.5px; color:var(--dim); margin-top:4px}
+  .goal-card .g-aff.yes{color:var(--blue); font-weight:600}
+  .goal-card .g-due{display:inline-block; font-size:11.5px; color:var(--accent); border:1px solid var(--accent-dim); border-radius:99px; padding:2px 8px; margin-top:6px}
+  .goal-card .g-due.late{color:var(--red); border-color:var(--red)}
+  .goal-card .g-note{font-size:13px; color:var(--dim); margin-top:10px; line-height:1.45}
+  .goal-card .g-note a{color:var(--blue)}
+  .goal-card .g-link{display:inline-block; margin-top:10px; font-size:13.5px; font-weight:600; color:var(--blue)}
+  .goal-card .g-status{display:inline-block; font-size:11.5px; font-weight:700; border-radius:99px; padding:3px 9px; margin-top:6px; margin-right:6px}
+  .goal-card .g-status.available{color:var(--accent); border:1px solid var(--accent-dim); background:var(--accent-dim)}
+  .goal-card .g-status.preorder{color:var(--blue); border:1px solid var(--blue-dim); background:var(--blue-dim)}
+  .goal-card .g-status.comingsoon{color:var(--amber); border:1px solid var(--amber-line); background:var(--amber-dim)}
+  .goal-card .g-status.soldout{color:var(--red); border:1px solid var(--red-dim); background:var(--red-dim)}
+  .goal-card .g-buy{margin-top:14px}
+  .goal-card .g-buy .g-buy-t{color:var(--dim); font-size:12px; margin-bottom:6px}
+  .goal-card a.g-buy-btn{display:flex; align-items:center; justify-content:center; gap:8px; width:100%; padding:15px 16px; border-radius:14px; background:var(--blue-dim); border:1px solid var(--blue-line); color:var(--blue); font-weight:700; font-size:16px; text-decoration:none}
+  .goal-card a.g-buy-btn:active{filter:brightness(1.3)}
+  .goal-card .g-buy-store{padding:13px 16px; border-radius:14px; background:var(--card2); border:1px solid var(--line); font-size:15px; font-weight:600}
+  .goal-card .g-item-link{display:inline-block; margin-left:8px; padding:8px 14px; border-radius:10px; background:var(--blue-dim); border:1px solid var(--blue-line); color:var(--blue); font-weight:700; font-size:14px; text-decoration:none; white-space:nowrap}
+  .goal-card .g-item-link:active{filter:brightness(1.3)}
+  .goal-card .g-extra{margin-top:12px; background:var(--card2); border:1px solid var(--line); border-radius:12px; padding:10px 12px}
+  .goal-card .g-extra .g-x-t{color:var(--dim); font-size:12px; margin-bottom:6px}
+  .goal-card .g-extra .g-x-row{display:flex; justify-content:space-between; font-size:14px; padding:3px 0; font-variant-numeric:tabular-nums}
+  .goal-card .g-extra .g-x-note{color:var(--amber); font-size:11.5px; margin-top:6px}
+  .goal-card.done .bar i{background:linear-gradient(90deg,#fbbf24,#f59e0b)}
+  .goal-card .g-foot{display:flex; justify-content:space-between; margin-top:8px; font-size:12.5px; color:var(--dim)}
+  .goal-card .g-del{color:var(--dim)}
+  .goal-card .g-edit{color:var(--accent); margin-right:14px}
+  .goal-card{cursor:pointer}
+  .goal-card .g-caret{display:inline-block; margin-left:6px; transition:transform .2s; color:var(--dim)}
+  .goal-card.open .g-caret{transform:rotate(180deg)}
+  .goal-card .g-detail{display:none; margin-top:12px; border-top:1px solid var(--line); padding-top:14px; cursor:default}
+  .goal-card.open .g-detail{display:block}
+  .goal-card .g-stats{display:flex; gap:10px; margin-bottom:14px}
+  .goal-card .g-stat{flex:1; background:var(--card2); border-radius:12px; padding:10px 6px; text-align:center}
+  .goal-card .g-stat .v{font-weight:700; font-variant-numeric:tabular-nums}
+  .goal-card .g-stat .k{color:var(--dim); font-size:11.5px; margin-top:2px}
+  .goal-card .g-actions{display:flex; gap:8px}
+  .goal-card .g-actions button{flex:1; padding:10px; border-radius:12px; border:1px solid var(--line); background:var(--card2); font-weight:600; font-size:14px}
+  .goal-card .g-actions .ga-add{background:var(--accent-dim); border-color:var(--accent-dim); color:var(--accent)}
+  .goal-card .g-actions .ga-edit{color:var(--accent)}
+  .goal-card .g-actions .ga-del{color:var(--red)}
+  .goal-card .g-hist{margin-top:14px}
+  .goal-card .g-h-t{color:var(--dim); font-size:12px; margin-bottom:4px}
+  .goal-card .g-h-row{display:flex; justify-content:space-between; gap:10px; font-size:13px; padding:7px 0; border-top:1px dashed var(--line)}
+  .goal-card .g-h-row .d{color:var(--dim); white-space:nowrap}
+  .goal-card .g-h-row .a{font-weight:600; white-space:nowrap}
+
+  .total-note{color:var(--dim); font-size:13px; margin:-4px 2px 12px}
+  .src-row .s-ic{font-size:20px}
+  .src-row .s-mid{flex:1; min-width:0}
+  .src-row .s-mid .s-sub{color:var(--dim); font-size:12px; margin-top:1px}
+  .src-row .s-amt.blue{color:var(--blue)}
+  .pill{font-size:12.5px; font-weight:700; padding:6px 10px; border-radius:99px; white-space:nowrap}
+  .pill.yes{background:var(--accent-dim); color:var(--accent)}
+  .pill.no{color:var(--dim); border:1px solid var(--line)}
+  .empty{color:var(--dim); text-align:center; padding:26px 10px; font-size:14.5px; border:1px dashed var(--line); border-radius:16px}
+
+  /* ---------- bottom nav + FAB ---------- */
+  nav.tabs{
+    position:fixed; left:0; right:0; bottom:0; z-index:30;
+    display:flex; justify-content:space-around; align-items:center;
+    background:var(--nav-bg); backdrop-filter:blur(12px);
+    border-top:1px solid var(--line); padding:10px 8px calc(10px + env(safe-area-inset-bottom));
+  }
+  nav.tabs button{color:var(--dim); font-size:11.5px; display:flex; flex-direction:column; align-items:center; gap:3px; padding:4px 8px}
+  nav.tabs button .ic{font-size:20px}
+  nav.tabs button.active{color:var(--accent)}
+  #fab{
+    position:fixed; right:18px; bottom:calc(74px + env(safe-area-inset-bottom)); z-index:31;
+    width:58px; height:58px; border-radius:50%; background:var(--accent); color:var(--on-accent);
+    font-size:30px; font-weight:700; box-shadow:0 8px 22px rgba(74,222,128,.35);
+    display:flex; align-items:center; justify-content:center; line-height:1;
+  }
+
+  /* ---------- sheet / modal ---------- */
+  .sheet-bg{position:fixed; inset:0; background:rgba(0,0,0,.6); z-index:40; display:flex; align-items:flex-end; justify-content:center}
+  .sheet{
+    background:var(--card); border:1px solid var(--line); border-radius:24px 24px 0 0;
+    width:100%; max-width:560px; max-height:88vh; overflow-y:auto;
+    padding:18px 18px calc(24px + env(safe-area-inset-bottom));
+  }
+  .sheet .grab{width:40px; height:4px; background:var(--line); border-radius:99px; margin:0 auto 14px; position:relative; touch-action:none}
+  .sheet .grab::before{content:''; position:absolute; left:-30px; right:-30px; top:-14px; bottom:-14px}
+  .sheet h3{font-size:18px; margin-bottom:14px}
+  .seg{display:flex; background:var(--card2); border-radius:12px; padding:4px; margin-bottom:14px}
+  .seg button{flex:1; padding:9px; border-radius:9px; color:var(--dim); font-weight:600; font-size:14px}
+  .seg button.sel.earning{background:var(--accent-dim); color:var(--accent)}
+  .seg button.sel.spending{background:var(--red-dim); color:var(--red)}
+  .seg button.sel.saving{background:var(--blue-dim); color:var(--blue)}
+  .seg button.sel.transfer{background:var(--purple-dim); color:var(--purple)}
+  .src-row{display:flex; align-items:center; gap:12px; background:var(--card); border:1px solid var(--line); border-radius:16px; padding:14px 16px; margin-bottom:8px}
+  .src-row .s-name{font-weight:600; flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  .src-row .s-count{color:var(--dim); font-size:12.5px}
+  .src-row .s-amt{font-weight:700; color:var(--accent); font-variant-numeric:tabular-nums}
+  .dest-row{display:flex; gap:8px; margin-bottom:8px}
+  .dest-row select{flex:1.4; min-width:0}
+  .dest-row .amt-wrap{flex:1; display:flex; align-items:center; gap:4px; background:var(--card2); border:1px solid var(--line); border-radius:12px; padding:0 10px}
+  .dest-row .amt-wrap input{border:none; background:none; padding:10px 0; font-size:16px}
+  .dest-row .x{color:var(--dim); font-size:18px; padding:0 4px; align-self:center}
+  .mini-btn{color:var(--accent); font-size:13.5px; font-weight:600; padding:4px 2px}
+  .field{margin-bottom:12px}
+  .field label{display:block; color:var(--dim); font-size:12.5px; margin:0 2px 5px}
+  .chips{display:flex; flex-wrap:wrap; gap:8px}
+  .chips button{border:1px solid var(--line); background:var(--card2); color:var(--dim); border-radius:99px; padding:8px 13px; font-size:13.5px}
+  .chips button.sel{border-color:var(--accent); color:var(--accent); background:var(--accent-dim)}
+  #goalFilter{display:flex; flex-wrap:wrap; gap:8px; margin-bottom:12px}
+  #goalFilter:empty{display:none}
+  #goalFilter button{border:1px solid var(--line); background:var(--card); color:var(--dim); border-radius:99px; padding:9px 14px; font-size:13.5px; font-weight:600}
+  #goalFilter button.sel{border-color:var(--accent); color:var(--accent); background:var(--accent-dim)}
+  #goalFilter button.clear{color:var(--dim); font-weight:400}
+  .goal-card .cat-row{display:flex; flex-wrap:wrap; gap:6px; margin-top:8px}
+  .goal-card .cat-chip{font-size:11.5px; color:var(--dim); border:1px solid var(--line); border-radius:99px; padding:3px 9px}
+  .gcat-new{display:flex; gap:8px; margin-top:8px}
+  .gcat-new input{flex:1}
+  .amt-input{display:flex; align-items:center; gap:6px; background:var(--card2); border:1px solid var(--line); border-radius:14px; padding:4px 14px}
+  .hint{color:var(--dim); font-size:12px; margin:5px 2px 0}
+  input:disabled{opacity:.55}
+  .g-item-row{display:grid; grid-template-columns:1fr 108px 36px; gap:8px; margin-bottom:8px; align-items:center}
+  .g-item-row input{padding:10px 12px; font-size:14.5px}
+  .g-item-row .gi-price{display:flex; align-items:center; gap:3px; background:var(--card2); border:1px solid var(--line); border-radius:12px; padding:0 8px}
+  .g-item-row .gi-price span{color:var(--dim); font-size:14px}
+  .g-item-row .gi-price input{border:none; background:none; padding:10px 0}
+  .g-item-row .gi-link{grid-column:1 / 3}
+  .g-item-row .gi-del{height:100%; min-height:40px; border:1px solid var(--line); border-radius:12px; color:var(--dim); font-size:16px}
+  .goal-card .g-items-total{font-size:12.5px; color:var(--dim); margin-top:2px; font-variant-numeric:tabular-nums}
+  .amt-input span{font-size:24px; color:var(--dim)}
+  .amt-input input{border:none; background:none; font-size:28px; font-weight:700; padding:8px 0}
+  .row2{display:flex; gap:10px}
+  .row2>.field{flex:1}
+  .sheet .btn{margin-top:8px}
+  .btn-cancel{background:var(--card2); border:1px solid var(--line); color:var(--dim)}
+  .sheet{position:relative}
+  .sheet-x{position:absolute; top:10px; right:12px; width:34px; height:34px; border-radius:50%; background:var(--card2); border:1px solid var(--line); color:var(--dim); font-size:18px; line-height:1}
+  .acct-note{color:var(--dim); font-size:11px; margin-top:6px; line-height:1.4}
+  .toast{
+    position:fixed; left:50%; transform:translateX(-50%); bottom:calc(96px + env(safe-area-inset-bottom));
+    background:var(--green-well); color:var(--accent); border:1px solid var(--accent-dim);
+    padding:10px 18px; border-radius:99px; font-size:14px; font-weight:600; z-index:60;
+  }
+  .confetti{font-size:26px; text-align:center; padding:6px}
+  .loading{color:var(--dim); text-align:center; padding:40px}
+.g-extra{margin-top:12px;background:var(--card2);border:1px solid var(--line);border-radius:12px;padding:12px}
+.g-extra .g-x-t{color:var(--dim);font-size:12px;margin-bottom:8px}
+.g-extra .g-x-row{display:flex;justify-content:space-between;gap:14px;font-size:13px;padding:5px 0;font-variant-numeric:tabular-nums}
+.g-extra .g-x-row span:last-child{text-align:right}
+.g-extra .g-x-note{color:var(--amber);font-size:11.5px;line-height:1.5;margin-top:8px}
+</style>
+</head>
+<body>
+
+<div id="loginView" class="hidden">
+  <div class="logo">💰</div>
+  <h1>Money</h1>
+  <p class="sub">Your accounts, spending and savings goals in one place.</p>
+  <input id="email" type="text" placeholder="Username or email" autocomplete="username">
+  <input id="password" type="password" placeholder="Password" autocomplete="current-password">
+  <button class="btn btn-primary" id="loginBtn">Sign in</button>
+  <div class="err" id="loginErr"></div>
+</div>
+
+<div id="appView" class="hidden">
+  <header class="top">
+    <div class="wordmark">money<span>.</span></div>
+    <div class="top-actions">
+      <button id="editBtn" title="Edit mode">Edit</button>
+      <button id="themeBtn" title="Switch light / dark">☀️</button>
+      <button id="tutorialBtn" title="How to use">?</button>
+      <button id="signOutBtn">Sign out</button>
+    </div>
+  </header>
+  <div id="tutorialBox" class="hidden">
+    <b>How to use Money</b>
+    <ul>
+      <li><b>The + button</b> logs money in, money out, a goal deposit, or a transfer between accounts.</li>
+      <li><b>The tabs</b>: Home (accounts + recent entries), Total (everything, every currency), Goals (your savings), Income (what you earned), Activity (full history).</li>
+      <li><b>Tap an account</b> to edit its name, icon, balance or minimum balance.</li>
+      <li><b>Tap a goal</b> to open it - its items, links, notes and deposits live inside.</li>
+      <li><b>Category chips</b> at the top of Goals filter which goals you see - tap several at once, or Show all.</li>
+      <li><b>The Edit button</b> at the top: turn it ON, then tap an account or goal to change it. With it OFF, tapping just shows the details - no text boxes.</li>
+      <li><b>☀️ / 🌙</b> switches between light and dark. <b>?</b> opens or closes this guide.</li>
+      <li>Account, goal and entry records sync. Entry templates are saved only in the browser where you make them.</li>
+    </ul>
+  </div>
+
+  <div id="tab-home">
+    <div class="total-card">
+      <div class="label">Total balance</div>
+      <div class="amount" id="totalBal">$0.00</div>
+      <div class="sub" id="totalSub"></div>
+      <div class="sub" id="totalSub2"></div>
+    </div>
+    <details style="margin:16px 0;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px"><summary style="cursor:pointer;min-height:32px;font-weight:700">Spending watchlist</summary><p class="total-note">Pin one category's current-month total here. This browser only. No budget or limit assumed.</p><div class="row2"><div class="field"><label for="watchCategory">Category</label><select id="watchCategory"><option value="">Choose a category</option></select></div><div class="field"><label for="watchCurrency">Currency</label><select id="watchCurrency"></select></div></div><div id="watchResult" role="status"></div></details>
+    <div id="nextGoal" style="margin:16px 0"></div>
+    <div class="section-head"><h2>Accounts</h2><button id="addAcctBtn">+ Add</button></div>
+    <button id="foreignToggle" class="mini-btn" style="min-height:44px;margin-bottom:8px"></button><div class="acct-row" id="acctRow"></div>
+    <details style="margin:12px 0;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px"><summary style="cursor:pointer;min-height:32px">Arrange account cards</summary><p class="total-note">Colors and order save in this browser for this user. Use arrows or drag handles to reorder. Names, icons and recorded balances are unchanged.</p><div id="accountArrange"></div></details>
+    <details style="background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px;margin:20px 0"><summary style="font-weight:700;cursor:pointer">Weekly summary</summary><div style="display:flex;gap:12px;margin:12px 0"><button id="weekPrev" class="mini-btn">Previous week</button><button id="weekNow" class="mini-btn">This week</button></div><div id="weeklySummary"></div></details>
+    <div class="section-head"><h2>Subscriptions</h2><button id="addSubBtn">+ Add</button></div>
+    <div class="total-note" style="margin-bottom:10px">Manual reminders only. These do not charge money or create transactions.</div><div id="subscriptionSummary"></div><div id="subscriptionList"></div>
+    <details style="margin:20px 0;background:var(--card);padding:16px;border:1px solid var(--line);border-radius:16px"><summary style="cursor:pointer;font-weight:700;min-height:32px">Backup &amp; tools</summary><p class="total-note">Download a private copy of your recorded accounts, goals, items, reminders and full transaction history. Keep it somewhere safe. No passwords are included.</p><button id="exportBackupBtn" class="btn" style="margin-top:12px">Download JSON backup</button><p class="total-note" id="exportStatus" role="status"></p></details>
+    <details style="margin:20px 0;background:var(--card);padding:16px;border:1px solid var(--line);border-radius:16px"><summary style="cursor:pointer;font-weight:700;min-height:32px">Entry templates</summary><p class="total-note">Saved only in this browser for this signed-in user, not synced. Templates prefill the Add form. Check the date, account, amount and goals, then confirm each entry yourself. To create one, open + and choose Save as template.</p><div id="templateList"></div></details>
+    <div class="section-head"><h2>Recent activity</h2></div>
+    <div class="tx-list" id="recentTx"></div>
+  </div>
+
+  <div id="tab-total" class="hidden">
+    <div class="total-card">
+      <div class="label">Total money</div>
+      <div class="amount" id="grandTotal">$0.00</div>
+      <div class="sub" id="grandSub"></div>
+    </div>
+    <details style="margin:18px 0;background:var(--card);padding:16px;border:1px solid var(--line);border-radius:16px"><summary style="cursor:pointer;font-weight:700;min-height:32px">Estimated USD view</summary><label style="display:flex;align-items:center;gap:10px;margin:12px 0"><input type="checkbox" id="fxToggle" style="width:22px;height:22px"> Include other currencies in an estimate</label><div class="total-note">Reference rates only, not what a bank or exchange will pay. Fees and spreads are not included. Recorded currencies, balances, goal targets and affordability stay unchanged.</div><div id="fxResult" style="margin-top:12px"></div></details>
+    <details style="margin:18px 0;background:var(--card);padding:16px;border:1px solid var(--line);border-radius:16px"><summary style="cursor:pointer;font-weight:700;min-height:32px">Balance over time · recorded USD</summary><p class="total-note">Reconstructed from current opening balances and dated entries, not bank snapshots. Editing opening balances, minimums or old entries changes this chart. Other currencies are excluded.</p><label style="display:block;margin:12px 0">Range <select id="balanceRange"><option value="7">7 days</option><option value="30" selected>30 days</option><option value="90">90 days</option></select></label><div id="balanceChart"></div></details>
+    <div class="section-head"><h2>By account</h2></div>
+    <div id="totalAccts"></div>
+    <div class="section-head"><h2>What your total could cover</h2></div>
+    <div class="total-note">Your total counts money saved in goals once. These are alternatives - affording one uses money the others would need.</div>
+    <div id="affordList"></div>
+  </div>
+
+  <div id="tab-goals" class="hidden">
+    <div class="section-head"><h2>Savings goals</h2><button id="addGoalBtn">+ New goal</button></div>
+    <details style="margin:12px 0;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px"><summary style="cursor:pointer;min-height:32px">Goal priority order</summary><p class="total-note">Move goals with arrows or drag the handle. Order is saved in this browser for this user, not synced. First goal appears as Next up on Home.</p><div id="goalOrderList"></div></details>
+    <div id="savingStreak" class="total-note" style="margin-bottom:14px"></div>
+    <div id="goalFilter"></div>
+    <div id="goalsList"></div>
+  </div>
+
+  <div id="tab-income" class="hidden">
+    <div class="total-card">
+      <div class="label">Total earned</div>
+      <div class="amount" id="incomeTotal">$0.00</div>
+      <div class="sub" id="incomeSub"></div>
+    </div>
+    <div class="section-head"><h2>Earnings by source</h2><button id="addIncomeBtn">+ Add income</button></div>
+    <div id="incomeSources"></div>
+    <div class="section-head"><h2>Income history</h2></div>
+    <div class="tx-list" id="incomeTx"></div>
+  </div>
+
+  <div id="tab-activity" class="hidden">
+    <div class="section-head"><h2>Spending by category</h2></div>
+    <div class="row2" style="margin-bottom:12px"><div class="field"><label for="spendMonth">Month</label><input type="month" id="spendMonth"></div><div class="field"><label for="spendCurrency">Currency</label><select id="spendCurrency"></select></div></div>
+    <div id="spendingChart" style="margin-bottom:24px"></div>
+    <div class="section-head"><h2>All activity</h2></div>
+    <div class="chips" id="filterChips" style="margin-bottom:12px">
+      <button data-f="all" class="sel">All</button>
+      <button data-f="earning">Earning</button>
+      <button data-f="spending">Spending</button>
+      <button data-f="saving">Saving</button>
+    </div>
+    <div class="field"><label for="txSearch">Search entries</label><input id="txSearch" type="search" placeholder="Name, source, amount, account or date" autocomplete="off"></div><p class="total-note" id="txSearchCount" role="status"></p>
+    <div class="tx-list" id="allTx"></div>
+  </div>
+</div>
+
+<button id="fab" class="hidden">+</button>
+
+<nav class="tabs hidden" id="tabs">
+  <button data-tab="home" class="active"><span class="ic">🏠</span>Home</button>
+  <button data-tab="total"><span class="ic">💰</span>Total</button>
+  <button data-tab="goals"><span class="ic">🎯</span>Goals</button>
+  <button data-tab="income"><span class="ic">💵</span>Income</button>
+  <button data-tab="activity"><span class="ic">🧾</span>Activity</button>
+</nav>
+
+<div id="sheetRoot"></div>
+
+<script src="config.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const sb = supabase.createClient(window.__SUPABASE_URL__, window.__SUPABASE_KEY__);
+
+let state = { accounts: [], goals: [], items: [], txs: [], filter: 'all', subscriptions: [], user: null };
+let goalCatFilter = [];
+const GOAL_CATEGORY_PRESETS = ['Tech', 'Amazon', 'Apple', 'Figures', 'Family'];
+const goalCats = g => (g.categories || []);
+
+const money = n => (n < 0 ? '-$' : '$') + Math.abs(n).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+const CURRENCIES = { USD: { sym: '$', name: 'US Dollar' }, EUR: { sym: '\u20ac', name: 'Euro' }, GBP: { sym: '\u00a3', name: 'British Pound' } };
+const acctCur = a => (a && a.currency ? String(a.currency).toUpperCase() : 'USD');
+const curSym = c => (CURRENCIES[c] && CURRENCIES[c].sym) || (c ? c + ' ' : '$');
+const moneyC = (n, c) => (n < 0 ? '-' : '') + curSym(c) + Math.abs(n).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+const otherCurSums = () => {
+  const byCur = {};
+  for (const a of state.accounts) {
+    const c = acctCur(a);
+    if (c === 'USD') continue;
+    byCur[c] = (byCur[c] || 0) + acctBalance(a.id);
+  }
+  return Object.entries(byCur).filter(([, v]) => Math.abs(v) >= 0.005).map(([c, v]) => moneyC(v, c) + (CURRENCIES[c] ? '' : ' ' + c));
+};
+const today = () => new Date().toLocaleDateString('en-CA');
+const fmtDate = d => new Date(d + 'T12:00:00').toLocaleDateString('en-US', {month: 'short', day: 'numeric'});
+
+/* ---------- auth ---------- */
+async function init() {
+  const { data: { session } } = await sb.auth.getSession();
+  if (session) { state.user = session.user; showApp(); } else { showLogin(); }
+  sb.auth.onAuthStateChange((_e, s) => {
+    if (s) { state.user = s.user; showApp(); } else { showLogin(); }
+  });
+}
+function showLogin() {
+  cancelPendingDeletes(); state.user=null;
+  $('loginView').classList.remove('hidden');
+  $('appView').classList.add('hidden');
+  $('tabs').classList.add('hidden'); $('fab').classList.add('hidden');
+}
+async function showApp() {
+  $('loginView').classList.add('hidden');
+  $('appView').classList.remove('hidden');
+  $('tabs').classList.remove('hidden'); $('fab').classList.remove('hidden');
+  await loadAll();
+}
+$('loginBtn').onclick = async () => {
+  $('loginErr').textContent = '';
+  $('loginBtn').textContent = 'Signing in…';
+  const idv = $('email').value.trim(), pwv = $('password').value;
+  let error = null;
+  if (idv.includes('@')) {
+    ({ error } = await sb.auth.signInWithPassword({ email: idv, password: pwv }));
+  } else {
+    try {
+      const r = await fetch(window.__SUPABASE_URL__ + '/functions/v1/username-login', { method: 'POST', headers: { 'content-type': 'application/json', 'apikey': window.__SUPABASE_KEY__ }, body: JSON.stringify({ username: idv, password: pwv }) });
+      if (!r.ok) error = new Error('Invalid login credentials');
+      else { const s = await r.json(); ({ error } = await sb.auth.setSession({ access_token: s.access_token, refresh_token: s.refresh_token })); }
+    } catch (e) { error = e; }
+  }
+  $('loginBtn').textContent = 'Sign in';
+  if (error) $('loginErr').textContent = error.message;
+};
+$('password').addEventListener('keydown', e => { if (e.key === 'Enter') $('loginBtn').click(); });
+$('signOutBtn').onclick = async () => { cancelPendingDeletes(); await sb.auth.signOut(); };
+
+/* ---------- theme + tutorial ---------- */
+function applyTheme(t) {
+  document.body.classList.toggle('light', t === 'light');
+  $('themeBtn').textContent = t === 'light' ? '🌙' : '☀️';
+  document.querySelector('meta[name="theme-color"]').setAttribute('content', t === 'light' ? '#f4f6f9' : '#0a0e13');
+  try { localStorage.setItem('moneyTheme', t); } catch (_) {}
+}
+$('themeBtn').onclick = () => applyTheme(document.body.classList.contains('light') ? 'dark' : 'light');
+applyTheme((() => { try { return localStorage.getItem('moneyTheme') || 'dark'; } catch (_) { return 'dark'; } })());
+$('tutorialBtn').onclick = () => $('tutorialBox').classList.toggle('hidden');
+
+/* ---------- edit mode ---------- */
+const editMode = () => document.body.classList.contains('editing');
+function applyEdit(on) {
+  document.body.classList.toggle('editing', on);
+  try { localStorage.setItem('moneyEdit', on ? 'on' : 'off'); } catch (_) {}
+}
+$('editBtn').onclick = () => {
+  applyEdit(!editMode());
+  toast(editMode() ? 'Edit mode on - tap an account or goal to change it' : 'Edit mode off');
+};
+applyEdit((() => { try { return localStorage.getItem('moneyEdit') === 'on'; } catch (_) { return false; } })());
+$('addIncomeBtn').onclick = () => openEntrySheet('earning');
+
+/* ---------- data ---------- */
+async function loadAll() {
+  const [a, g, t] = await Promise.all([
+    sb.from('money_accounts').select('*').order('sort_order').order('created_at'),
+    sb.from('money_goals').select('*').order('created_at'),
+    readFullTable('money_transactions').then(data=>({data:data.sort((a,b)=>b.occurred_on.localeCompare(a.occurred_on)||String(b.created_at).localeCompare(String(a.created_at))),error:null})).catch(error=>({data:[],error})),
+  ]);
+  if (a.error || g.error || t.error) { toast((a.error || g.error || t.error).message); return; }
+  state.accounts = a.data; state.goals = g.data; state.txs = t.data;
+  const it = await sb.from('money_goal_items').select('*').order('created_at');
+  state.items = it.error ? [] : it.data;
+  const subs = await sb.from('money_subscriptions').select('*').order('next_due');
+  state.subscriptions = subs.error ? [] : subs.data;
+  renderAll();
+}
+const isAdjustment = t => t.category === 'Balance adjustment' && (t.note||'').startsWith('[Balance check]');
+const acctBalance = id => {
+  const a = state.accounts.find(x => x.id === id);
+  if (!a) return 0;
+  let b = Number(a.starting_balance);
+  for (const t of state.txs) if (t.account_id === id) b += ((t.kind === 'earning' || (t.kind === 'transfer' && t.direction === 'in')) ? 1 : -1) * Number(t.amount);
+  return b;
+};
+const goalSaved = id => state.txs.filter(t => t.goal_id === id && t.kind === 'saving').reduce((s, t) => s + Number(t.amount), 0);
+const goalItems = id => state.items.filter(i => i.goal_id === id);
+const STATUS_LABELS = { available: 'Available', preorder: 'Pre-order', comingsoon: 'Coming soon', soldout: 'Sold out' };
+const acctMin = a => (a && a.minimum_balance != null) ? Number(a.minimum_balance) : null;
+const acctUsable = a => acctBalance(a.id) - (acctMin(a) || 0);
+
+/* ---------- render ---------- */
+function renderAll() { renderWeeklySummary(); renderSubscriptions(); renderHome(); renderTotal(); renderGoals(); renderIncome(); renderActivity(); renderFx(); renderTemplates(); renderBalanceHistory(); renderGoalOrder(); renderWatchlist(); renderAccountArrange(); }
+let summaryWeekOffset = 0;
+function renderWeeklySummary() {
+  const start=new Date(savingsWeek(today())+'T00:00:00Z');start.setUTCDate(start.getUTCDate()+summaryWeekOffset*7);
+  const end=new Date(start);end.setUTCDate(end.getUTCDate()+6);
+  const lo=start.toISOString().slice(0,10),hi=end.toISOString().slice(0,10);
+  const txs=state.txs.filter(t=>t.occurred_on>=lo&&t.occurred_on<=hi&&t.occurred_on<=today()&&!isAdjustment(t));
+  const currencies=[...new Set(state.accounts.map(a=>acctCur(a)))];
+  const parts=currencies.map(cur=>{
+    const rows=txs.filter(t=>acctCur(state.accounts.find(a=>a.id===t.account_id))===cur);
+    const sum=kind=>rows.filter(t=>t.kind===kind).reduce((n,t)=>n+Number(t.amount),0);
+    const categories={};rows.filter(t=>t.kind==='spending').forEach(t=>categories[t.category||'Other']=(categories[t.category||'Other']||0)+Number(t.amount));
+    const biggest=Object.entries(categories).sort((a,b)=>b[1]-a[1])[0];
+    if(!rows.length)return '';
+    return `<div style="padding:10px 0;border-bottom:1px solid var(--line)"><b>${cur}</b><div class="total-note">In ${moneyC(sum('earning'),cur)} · Out ${moneyC(sum('spending'),cur)} · Saved ${moneyC(sum('saving'),cur)}</div><div class="total-note">${biggest?'Biggest spending category: '+esc(biggest[0])+' · '+moneyC(biggest[1],cur):'No spending logged.'}</div></div>`;
+  }).join('');
+  const savedGoals=state.goals.filter(g=>goalSaved(g.id)>0);
+  $('weeklySummary').innerHTML=`<p style="font-size:13px;color:var(--dim)">${fmtDate(lo)} - ${fmtDate(hi)} · ${summaryWeekOffset===0?'so far':'recorded entries'} · Transfers excluded from income/spending.</p>${parts||'<div class="empty">No entries in this week.</div>'}<p class="total-note" style="margin-top:12px">Current goal progress: ${savedGoals.length?savedGoals.map(g=>esc(g.name)+': '+money(goalSaved(g.id))+(Number(g.target)>0?' ('+Math.min(100,Math.round(goalSaved(g.id)/Number(g.target)*100))+'%)':'')).join(' · '):'No goal deposits yet.'}</p>`;
+}
+function renderSubscriptions() {
+  const sums = {};
+  for (const sub of state.subscriptions) {
+    const monthly = Number(sub.amount) * ({weekly:52/12,monthly:1,quarterly:1/3,yearly:1/12}[sub.cycle] || 1);
+    sums[sub.currency] = (sums[sub.currency] || 0) + monthly;
+  }
+  $('subscriptionSummary').textContent = Object.entries(sums).map(([cur,amt]) => moneyC(amt,cur) + '/month average').join(' · ');
+  $('subscriptionSummary').style.cssText = 'color:var(--dim);font-size:13px;margin-bottom:10px';
+  const box = $('subscriptionList');
+  box.innerHTML = state.subscriptions.length ? '' : '<div class="empty">No subscriptions added. Add only the recurring charges you want to track.</div>';
+  for (const sub of state.subscriptions) {
+    const row = document.createElement('div'); row.className='src-row';
+    row.innerHTML = `<div class="s-name">${esc(sub.name)}<div class="s-count">${esc(sub.cycle)} · ${sub.next_due < today() ? 'Past due: ' : 'Next: '}${fmtDate(sub.next_due)}</div></div><div class="s-amt">${moneyC(Number(sub.amount),sub.currency)}</div>`;
+    row.onclick = () => openSubscription(sub); box.appendChild(row);
+  }
+}
+function openSubscription(sub = null) {
+  const editing = !sub || editMode();
+  if (!editing) {
+    const bg = openSheet(`<h3>${esc(sub.name)}</h3><div class="ainfo"><div class="ainfo-row"><span>Amount</span><b>${moneyC(Number(sub.amount),sub.currency)}</b></div><div class="ainfo-row"><span>Repeats</span><b>${esc(sub.cycle)}</b></div><div class="ainfo-row"><span>Next payment</span><b>${fmtDate(sub.next_due)}</b></div>${sub.notes ? `<p style="padding:12px 0">${esc(sub.notes)}</p>` : ''}</div><p class="acct-note">Manual reminder, not an automatic charge. Turn on Edit to update the next date after payment.</p><button class="btn btn-cancel" id="subClose">Close</button>`);
+    bg.querySelector('#subClose').onclick=()=>bg.remove(); return;
+  }
+  const bg = openSheet(`<h3>${sub ? 'Edit subscription' : 'Add subscription'}</h3>
+    <div class="field"><label>Name</label><input id="subName" value="${esc(sub?.name || '')}" placeholder="Subscription name"></div>
+    <div class="row2"><div class="field"><label>Amount per payment</label><input id="subAmount" type="number" min="0" step="0.01" inputmode="decimal" value="${sub ? Number(sub.amount) : ''}"></div><div class="field"><label>Currency code</label><input id="subCurrency" maxlength="6" value="${esc(sub?.currency || 'USD')}"></div></div>
+    <div class="field"><label>Repeats</label><select id="subCycle">${['weekly','monthly','quarterly','yearly'].map(c=>`<option value="${c}" ${sub?.cycle===c?'selected':''}>${c}</option>`).join('')}</select></div>
+    <div class="field"><label>Next payment date</label><input id="subDue" type="date" value="${sub?.next_due || today()}"></div>
+    <div class="field"><label>Notes (optional)</label><textarea id="subNotes">${esc(sub?.notes || '')}</textarea></div>
+    <button class="btn btn-primary" id="subSave">Save</button><button class="btn btn-cancel" id="subCancel">Cancel</button>${sub?'<button class="btn" style="color:var(--red)" id="subDelete">Delete reminder</button>':''}<div class="err" id="subErr"></div>`);
+  bg.querySelector('#subCancel').onclick=()=>bg.remove();
+  bg.querySelector('#subSave').onclick=async()=>{
+    const row={name:bg.querySelector('#subName').value.trim(),amount:Number(bg.querySelector('#subAmount').value),currency:bg.querySelector('#subCurrency').value.trim().toUpperCase(),cycle:bg.querySelector('#subCycle').value,next_due:bg.querySelector('#subDue').value,notes:bg.querySelector('#subNotes').value.trim()};
+    if(!row.name || !bg.querySelector('#subAmount').value || !Number.isFinite(row.amount) || row.amount<0 || !/^[A-Z]{3,6}$/.test(row.currency) || !row.next_due){bg.querySelector('#subErr').textContent='Enter a name, non-negative amount, currency and next date.';return;}
+    const result=sub?await sb.from('money_subscriptions').update(row).eq('id',sub.id):await sb.from('money_subscriptions').insert(row);
+    if(result.error){bg.querySelector('#subErr').textContent=result.error.message;return;} bg.remove(); await loadAll(); toast('Subscription reminder saved');
+  };
+  if(sub) bg.querySelector('#subDelete').onclick=async()=>{const btn=bg.querySelector('#subDelete');if(btn.dataset.confirmed!=='yes'){btn.dataset.confirmed='yes';btn.textContent='Tap again to delete reminder';return;}bg.remove();queueDelete('sub:'+sub.id,'Reminder: '+sub.name,async()=>sb.from('money_subscriptions').delete().eq('id',sub.id));};
+}
+function renderHome() {
+  const usdAccts = state.accounts.filter(a => acctCur(a) === 'USD');
+  const totalAvail = usdAccts.reduce((s, a) => s + acctUsable(a), 0);
+  const totalGoals = state.goals.reduce((s, g) => s + goalSaved(g.id), 0);
+  $('totalBal').textContent = money(totalAvail + totalGoals);
+  const others = otherCurSums();
+  $('totalSub2').textContent = `${money(totalAvail)} available · ${money(totalGoals)} saved in goals` + (others.length ? ` · plus ${others.join(', ')} in other currencies` : '');
+  const month = new Date().toISOString().slice(0, 7);
+  let ein = 0, eout = 0;
+  for (const t of state.txs) {
+    if (!t.occurred_on.startsWith(month)) continue;
+    if (t.kind === 'transfer' || isAdjustment(t)) continue;
+    const ta = state.accounts.find(x => x.id === t.account_id);
+    if (acctCur(ta) !== 'USD') continue;
+    if (t.kind === 'earning') ein += Number(t.amount);
+    if (t.kind === 'spending') eout += Number(t.amount);
+  }
+  $('totalSub').textContent = `This month: ${money(ein)} in · ${money(eout)} out`;
+
+  $('acctRow').innerHTML = state.accounts.length ? '' : '<div class="empty" style="width:100%">No accounts yet. Add one - like Bank of America, Cash App or Apple Pay - with your current balance.</div>';
+  const foreignCount=state.accounts.filter(a=>acctCur(a)!=='USD').length;
+  $('foreignToggle').textContent=(foreignExpanded?'Hide other currencies':'More: other currencies')+' ('+foreignCount+') '+[...new Set(state.accounts.filter(a=>acctCur(a)!=='USD').map(a=>({CAD:'🇨🇦',EUR:'🇪🇺',PLN:'🇵🇱',ARS:'🇦🇷',BMD:'🇧🇲',HUF:'🇭🇺'})[acctCur(a)]||acctCur(a)))].join(' ');$('foreignToggle').classList.toggle('hidden',!foreignCount);
+  for (const a of orderedAccounts().filter(a=>foreignExpanded||acctCur(a)==='USD')) {
+    const bal = acctBalance(a.id);
+    const d = document.createElement('div');
+    d.className = 'acct-card';
+    const color=accountLayout().colors?.[a.id];if(ACCOUNT_COLORS.includes(color)){d.style.borderColor=color;d.style.borderTopWidth='4px';}
+    const amin = acctMin(a);
+    const minNote = `<div class="acct-note">Must have a minimum of ${moneyC(amin || 0, acctCur(a))} in account</div>`;
+    if (amin) {
+      const spend = bal - amin;
+      d.innerHTML = `<div class="icon">${a.icon || '🏦'}</div><div class="name"></div><div class="bal ${spend < 0 ? 'neg' : ''}">${moneyC(spend, acctCur(a))}</div><div class="avail">Spending money${acctCur(a) !== 'USD' ? ' · ' + acctCur(a) : ''}</div><div class="acct-all">All of the money: ${moneyC(bal, acctCur(a))}</div>${minNote}`;
+    } else {
+      d.innerHTML = `<div class="icon">${a.icon || '🏦'}</div><div class="name"></div><div class="bal ${bal < 0 ? 'neg' : ''}">${moneyC(bal, acctCur(a))}</div><div class="avail">available${acctCur(a) !== 'USD' ? ' · ' + acctCur(a) : ''}</div>${minNote}`;
+    }
+    d.querySelector('.name').textContent = a.name;
+    d.onclick = () => { if (editMode()) openAccountSheet(a); else openAccountInfo(a); };
+    $('acctRow').appendChild(d);
+  }
+  const recent = displayTxs().slice(0, 5);
+  $('recentTx').innerHTML = recent.length ? '' : '<div class="empty">Nothing logged yet. Tap + to add your first entry.</div>';
+  recent.forEach(t => $('recentTx').appendChild(txRow(t)));
+}
+function renderTotal() {
+  const usdAccts = state.accounts.filter(a => acctCur(a) === 'USD');
+  const otherAccts = state.accounts.filter(a => acctCur(a) !== 'USD');
+  const totalAvail = usdAccts.reduce((s, a) => s + acctUsable(a), 0);
+  const totalGoals = state.goals.reduce((s, g) => s + goalSaved(g.id), 0);
+  const total = totalAvail + totalGoals;
+  $('grandTotal').textContent = money(total);
+  $('grandSub').textContent = `${money(totalAvail)} in accounts · ${money(totalGoals)} saved in goals` + (otherAccts.length ? ' · US dollars only - other currencies below' : '');
+
+  const ac = $('totalAccts');
+  ac.innerHTML = state.accounts.length ? '' : '<div class="empty">No accounts yet.</div>';
+  for (const a of usdAccts) {
+    const bal = acctBalance(a.id);
+    const amin = acctMin(a);
+    const d = document.createElement('div');
+    d.className = 'src-row';
+    d.innerHTML = `<div class="s-ic">${a.icon || '🏦'}</div><div class="s-name"></div><div style="text-align:right"><div class="s-amt" style="color:${acctUsable(a) < 0 ? 'var(--red)' : 'var(--text)'}">${money(acctUsable(a))}</div>${amin ? `<div class="s-count">Spending · All ${money(bal)}</div>` : ''}</div>`;
+    d.querySelector('.s-name').textContent = a.name;
+    ac.appendChild(d);
+  }
+  if (state.goals.length) {
+    const d = document.createElement('div');
+    d.className = 'src-row';
+    d.innerHTML = `<div class="s-ic">🎯</div><div class="s-name" style="color:var(--dim)">Saved in goals</div><div class="s-amt blue">${money(totalGoals)}</div>`;
+    ac.appendChild(d);
+  }
+  if (otherAccts.length) {
+    const h = document.createElement('div');
+    h.className = 'total-note';
+    h.style.margin = '14px 2px 8px';
+    h.textContent = 'Other currencies - kept separate, not added into your dollar total:';
+    ac.appendChild(h);
+    for (const a of otherAccts) {
+      const bal = acctBalance(a.id);
+      const d = document.createElement('div');
+      d.className = 'src-row';
+      d.innerHTML = `<div class="s-ic">${a.icon || '🏦'}</div><div class="s-name"></div><div class="s-count">${acctCur(a)}</div><div class="s-amt" style="color:${bal < 0 ? 'var(--red)' : 'var(--text)'}">${moneyC(bal, acctCur(a))}</div>`;
+      d.querySelector('.s-name').textContent = a.name;
+      ac.appendChild(d);
+    }
+  }
+
+  const af = $('affordList');
+  const rows = state.goals.map(g => ({ g, saved: goalSaved(g.id), target: Number(g.target) })).filter(r => r.target > 0);
+  af.innerHTML = rows.length ? '' : '<div class="empty">No savings goals yet. Add one on the Goals tab and it will show up here.</div>';
+  rows.sort((x, y) => {
+    const xa = x.target > 0 && total >= x.target, ya = y.target > 0 && total >= y.target;
+    if (xa !== ya) return xa ? -1 : 1;
+    return x.target - y.target;
+  });
+  for (const { g, saved, target } of rows) {
+    const can = target > 0 && total >= target;
+    const d = document.createElement('div');
+    d.className = 'src-row';
+    d.innerHTML = `
+      <div class="s-ic">${g.emoji || '🎯'}</div>
+      <div class="s-mid">
+        <div class="s-name" style="flex:none; white-space:normal; overflow:visible"></div>
+        <div class="s-sub">${money(target)}${saved > 0 ? ' · ' + money(saved) + ' already saved toward it' : ''}</div>
+      </div>
+      <div class="pill ${can ? 'yes' : 'no'}">${can ? '✓ Affordable' : money(Math.max(0, target - total)) + ' short'}</div>`;
+    d.querySelector('.s-name').textContent = g.name;
+    af.appendChild(d);
+  }
+}
+function savingsWeek(date) {
+  const d=new Date(date+'T00:00:00Z');const day=(d.getUTCDay()+6)%7;d.setUTCDate(d.getUTCDate()-day);return d.toISOString().slice(0,10);
+}
+function renderGoals() {
+  const currentWeek=savingsWeek(today()), weekMs=7*86400000;
+  const weeks=new Set(state.txs.filter(t=>t.kind==='saving'&&Number(t.amount)>0&&t.occurred_on<=today()).map(t=>savingsWeek(t.occurred_on)));
+  let cursor=new Date(currentWeek+'T00:00:00Z');
+  if(!weeks.has(currentWeek))cursor=new Date(cursor.getTime()-weekMs);
+  let streak=0;while(weeks.has(cursor.toISOString().slice(0,10))){streak++;cursor=new Date(cursor.getTime()-weekMs);}
+  $('savingStreak').textContent=streak ? `🔥 ${streak}-week saving streak · Weeks start Monday. ${weeks.has(currentWeek)?'You saved this week.':'Save this week to keep it going.'}` : 'Start a saving streak with a goal deposit. Each Monday-Sunday week with a deposit counts.';
+  renderGoalOrder();
+  const el = $('goalsList');
+  el.innerHTML = state.goals.length ? '' : '<div class="empty">No goals yet. Make one for something you\'re saving toward - like a new phone or a projector.</div>';
+  const usdAvail = state.accounts.filter(a => acctCur(a) === 'USD').reduce((x, a) => x + acctUsable(a), 0);
+  const usdTotal = usdAvail + state.goals.reduce((x, gg) => x + goalSaved(gg.id), 0);
+  const allCats = [...new Set(state.goals.flatMap(g => goalCats(g)))].sort((a, b) => a.localeCompare(b));
+  goalCatFilter = goalCatFilter.filter(c => allCats.includes(c));
+  const fEl = $('goalFilter');
+  fEl.innerHTML = '';
+  if (allCats.length) {
+    for (const c of allCats) {
+      const b = document.createElement('button');
+      b.textContent = c;
+      b.className = goalCatFilter.includes(c) ? 'sel' : '';
+      b.onclick = () => {
+        goalCatFilter = goalCatFilter.includes(c) ? goalCatFilter.filter(x => x !== c) : [...goalCatFilter, c];
+        renderGoals();
+      };
+      fEl.appendChild(b);
+    }
+    if (goalCatFilter.length) {
+      const clear = document.createElement('button');
+      clear.textContent = 'Show all';
+      clear.className = 'clear';
+      clear.onclick = () => { goalCatFilter = []; renderGoals(); };
+      fEl.appendChild(clear);
+    }
+  }
+  const shown = goalCatFilter.length ? orderedGoals().filter(g => goalCats(g).some(c => goalCatFilter.includes(c))) : orderedGoals();
+  if (state.goals.length && !shown.length) el.innerHTML = '<div class="empty">No goals in ' + goalCatFilter.map(esc).join(', ') + ' yet. Edit a goal to add it, or pick another category.</div>';
+  for (const g of shown) {
+    const saved = goalSaved(g.id), target = Number(g.target);
+    const hasTarget = target > 0;
+    const pct = hasTarget ? Math.min(100, saved / target * 100) : 0;
+    const done = hasTarget && saved >= target;
+    const affPct = hasTarget ? Math.min(100, usdTotal / target * 100) : 0;
+    const canAfford = hasTarget && usdTotal >= target;
+    let dueHtml = '';
+    if (g.due_date) {
+      const dd = new Date(g.due_date + 'T12:00:00');
+      const days = Math.ceil((dd - Date.now()) / 86400000);
+      const late = days < 0;
+      dueHtml = `<div class="g-due${late ? ' late' : ''}">Due ${fmtDate(g.due_date)}${late ? ' - past due' : days === 0 ? ' - today' : ` · ${days} day${days === 1 ? '' : 's'} left`}</div>`;
+    }
+    const d = document.createElement('div');
+    d.className = 'goal-card' + (done ? ' done' : '');
+    const hist = state.txs.filter(t => t.goal_id === g.id && t.kind === 'saving').slice(0, 5);
+    const gItems = goalItems(g.id);
+    const itemsTotal = gItems.reduce((s, i) => s + Number(i.price), 0);
+    const anyPriced = gItems.some(i => i.price != null);
+    const itemsHtml = gItems.length ? '<div class="g-hist"><div class="g-h-t">' + gItems.length + ' item' + (gItems.length === 1 ? '' : 's') + (anyPriced ? ' - all together ' + money(itemsTotal) : '') + '</div>' + gItems.map(i => `<div class="g-h-row" style="align-items:center"><span style="min-width:0">${esc(i.name)}</span><span class="a" style="display:flex;align-items:center">${i.price != null ? money(Number(i.price)) : ''}${i.link ? `<a class="g-item-link" href="${esc(i.link)}" target="_blank" rel="noopener">View ↗</a>` : ''}</span></div>`).join('') + '</div>' : '';
+    const statusHtml = g.status && STATUS_LABELS[g.status] ? `<div class="g-status ${g.status}">${STATUS_LABELS[g.status]}</div>` : '';
+    const storeHost = h => { try { return new URL(h).hostname.replace(/^www\./, ''); } catch (e) { return h; } };
+    const buyLabel = g.buy_from || (g.link ? storeHost(g.link) : null);
+    const buyHtml = (g.link || g.buy_from) ? `<div class="g-buy"><div class="g-buy-t">Where to buy</div>${g.link ? `<a class="g-buy-btn" href="${esc(g.link)}" target="_blank" rel="noopener">${esc(buyLabel)} <span style="opacity:.7">↗</span></a>` : `<div class="g-buy-store">${esc(buyLabel)}</div>`}</div>` : '';
+    const extrasHtml = costPlanHtml(g.target,g.shipping,g.fees,goalItems(g.id).some(i=>i.price==null));
+    d.innerHTML = `
+      <div class="g-top">
+        <div class="g-emoji">${g.emoji || '🎯'}</div>
+        <div class="g-mid">
+          <div class="g-name"></div>
+          <div class="g-nums">${hasTarget ? money(saved) + ' of ' + money(target) : money(saved) + ' saved · no target set'}</div>
+          ${gItems.length ? `<div class="g-items-total">${gItems.length} items${anyPriced ? ' · ' + money(itemsTotal) + ' all together' : ''}</div>` : ''}
+        </div>
+        ${done ? '<div style="font-size:22px">🎉</div>' : '<button class="g-add">+ Add</button>'}
+      </div>
+      ${hasTarget ? `<div class="bar"><i style="width:${pct}%"></i></div>${[25,50,75,100].filter(n=>pct>=n).length?`<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">${[25,50,75,100].filter(n=>pct>=n).map(n=>`<span class="cat-chip">${n===100?'🏆':'⭐'} ${n}% saved</span>`).join('')}</div>`:''}` : ''}
+      ${hasTarget ? `<div class="bar afford"><i style="width:${affPct}%"></i></div><div class="g-aff${canAfford ? ' yes' : ''}">${canAfford ? '✓ Can afford now' : 'Can afford: ' + affPct.toFixed(0) + '% of the price'}</div>` : ''}
+      <div>${statusHtml}${dueHtml}</div>
+      ${goalCats(g).length ? `<div class="cat-row">${goalCats(g).map(c => `<span class="cat-chip">${esc(c)}</span>`).join('')}</div>` : ''}
+      <div class="g-foot"><span>${!hasTarget ? 'No target yet' : done ? 'Funded!' : pct.toFixed(0) + '% there'}<span class="g-caret">▾</span></span><span><button class="g-edit">Edit</button><button class="g-del">Delete</button></span></div>
+      <div class="g-detail">
+        <div class="g-stats">
+          <div class="g-stat"><div class="v">${money(saved)}</div><div class="k">Saved</div></div>
+          <div class="g-stat"><div class="v">${hasTarget ? money(Math.max(0, target - saved)) : '–'}</div><div class="k">Left to go</div></div>
+          <div class="g-stat"><div class="v">${hasTarget ? pct.toFixed(0) + '%' : '–'}</div><div class="k">${done ? 'Funded 🎉' : 'There'}</div></div>
+        </div>
+        ${buyHtml}
+        ${extrasHtml}
+        ${itemsHtml}
+        ${g.note ? `<div class="g-note">${linkify(g.note)}</div>` : ''}
+        <div class="g-actions">
+          <button class="ga-add">+ Add money</button>
+          <button class="ga-edit">Edit goal</button>
+          <button class="ga-del">Delete</button>
+        </div>
+        ${hist.length ? '<div class="g-hist"><div class="g-h-t">Recent deposits</div>' + hist.map(t => `<div class="g-h-row"><span class="d">${fmtDate(t.occurred_on)}</span><span>${esc(t.note || 'Deposit')}</span><span class="a">+${money(Number(t.amount))}</span></div>`).join('') + '</div>' : '<div class="g-hist"><div class="g-h-t">No deposits yet - tap + Add money to start this goal.</div></div>'}
+      </div>`;
+    d.querySelector('.g-name').textContent = g.name;
+    const addMoney = () => openEntrySheet('saving', g.id);
+    const editGoal = () => openGoalSheet(g);
+    const deleteGoal = async () => {
+      if (!confirm('Delete this goal? Money saved toward it goes back to your accounts.')) return;
+      queueDelete('goal:'+g.id, 'Goal: '+g.name, async()=>sb.from('money_goals').delete().eq('id',g.id));
+    };
+    const add = d.querySelector('.g-add');
+    if (add) add.onclick = addMoney;
+    d.querySelector('.g-edit').onclick = editGoal;
+    d.querySelector('.g-del').onclick = deleteGoal;
+    d.querySelector('.ga-add').onclick = addMoney;
+    d.querySelector('.ga-edit').onclick = editGoal;
+    d.querySelector('.ga-del').onclick = deleteGoal;
+    d.onclick = e => { if (e.target.closest('button, a')) return; if (editMode()) openGoalSheet(g); else d.classList.toggle('open'); };
+    el.appendChild(d);
+  }
+}
+function displayTxs() {
+  // Pair up transfer legs so each move shows once: From account -> To account.
+  const byTransfer = {};
+  for (const t of state.txs) if (t.kind === 'transfer' && t.transfer_id) (byTransfer[t.transfer_id] ||= []).push(t);
+  const out = [];
+  for (const t of state.txs) {
+    if (t.kind === 'transfer' && t.transfer_id) {
+      if (t.direction !== 'out') continue;
+      const legs = byTransfer[t.transfer_id];
+      const dest = legs.find(x => x.direction === 'in');
+      if (!dest) { out.push(t); continue; }
+      out.push({ ...t, paired: true, pair_ids: legs.map(x => x.id), to_account_id: dest.account_id });
+    } else out.push(t);
+  }
+  return out;
+}
+function renderIncome() {
+  const earn = state.txs.filter(t => t.kind === 'earning' && !isAdjustment(t));
+  const curOf = t => acctCur(state.accounts.find(x => x.id === t.account_id));
+  const month = new Date().toISOString().slice(0, 7);
+  const total = earn.filter(t => curOf(t) === 'USD').reduce((s, t) => s + Number(t.amount), 0);
+  const mTotal = earn.filter(t => curOf(t) === 'USD' && t.occurred_on.startsWith(month)).reduce((s, t) => s + Number(t.amount), 0);
+  $('incomeTotal').textContent = money(total);
+  $('incomeSub').textContent = `${money(mTotal)} earned this month (US dollars)`;
+  const bySrc = {};
+  for (const t of earn) {
+    const c = curOf(t);
+    const k = (t.category || 'Other') + (c !== 'USD' ? ' (' + c + ')' : '');
+    (bySrc[k] ||= { total: 0, count: 0, cur: c });
+    bySrc[k].total += Number(t.amount); bySrc[k].count++;
+  }
+  const srcs = Object.entries(bySrc).sort((a, b) => b[1].total - a[1].total);
+  $('incomeSources').innerHTML = srcs.length ? '' : '<div class="empty">No earnings yet. Tap + and choose Earned to log your first income.</div>';
+  for (const [name, v] of srcs) {
+    const d = document.createElement('div');
+    d.className = 'src-row';
+    d.innerHTML = `<div class="s-name"></div><div class="s-count">${v.count}x</div><div class="s-amt">${moneyC(v.total, v.cur)}</div>`;
+    d.querySelector('.s-name').textContent = name;
+    $('incomeSources').appendChild(d);
+  }
+  $('incomeTx').innerHTML = earn.length ? '' : '<div class="empty">Nothing here yet.</div>';
+  earn.forEach(t => $('incomeTx').appendChild(txRow(t)));
+}
+function renderSpendingChart() {
+  const currencies = [...new Set(state.accounts.map(a => acctCur(a)))].sort();
+  const select = $('spendCurrency');
+  const previous = select.value || 'USD';
+  select.innerHTML = currencies.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('');
+  select.value = currencies.includes(previous) ? previous : (currencies[0] || 'USD');
+  if (!$('spendMonth').value) $('spendMonth').value = today().slice(0, 7);
+  const month = $('spendMonth').value, currency = select.value;
+  const groups = {};
+  state.txs.filter(t => !isAdjustment(t) && t.kind === 'spending' && t.occurred_on.startsWith(month) && acctCur(state.accounts.find(a => a.id === t.account_id)) === currency).forEach(t => {
+    const c = t.category || 'Other'; groups[c] = (groups[c] || 0) + Number(t.amount);
+  });
+  const rows = Object.entries(groups).sort((a,b) => b[1] - a[1]);
+  const total = rows.reduce((sum, row) => sum + row[1], 0);
+  $('spendingChart').innerHTML = total ? `<div class="total-note" style="margin-bottom:12px">${moneyC(total,currency)} spent in ${esc(month)}. Currencies are kept separate.</div>` + rows.map(([name,amount]) => `<div style="background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px;margin-bottom:8px"><div style="display:flex;justify-content:space-between;gap:12px;font-size:14px"><span>${esc(name)}</span><b>${moneyC(amount,currency)} · ${Math.round(amount/total*100)}%</b></div><div style="height:9px;background:var(--card2);border-radius:9px;margin-top:9px;overflow:hidden"><div style="height:100%;width:${amount/total*100}%;background:var(--accent);border-radius:9px"></div></div></div>`).join('') : '<div class="empty">No spending logged for this month and currency. Your income and transfers are not counted as spending.</div>';
+}
+function renderActivity() {
+  renderSpendingChart();
+  const base = (state.filter === 'all' ? displayTxs() : displayTxs().filter(t => t.kind === state.filter));
+  const query=$('txSearch').value.trim().toLocaleLowerCase();
+  const list=base.filter(t=>{
+    if(!query)return true;
+    const a=state.accounts.find(a=>a.id===t.account_id),g=state.goals.find(g=>g.id===t.goal_id),dest=state.accounts.find(a=>a.id===t.to_account_id);
+    return [t.note,t.category,t.kind,t.occurred_on,fmtDate(t.occurred_on),a?.name,g?.name,dest?.name,String(t.amount),Number(t.amount).toFixed(2),moneyC(t.amount,acctCur(a))].join(' ').toLocaleLowerCase().includes(query);
+  });
+  $('txSearchCount').textContent=query?list.length+' matching '+(list.length===1?'entry':'entries')+' in this filter.':'';
+  $('allTx').innerHTML = list.length ? '' : '<div class="empty">'+(query?'No matching entries. Try another name, source, amount or filter.':'No entries here yet.')+'</div>';
+  list.forEach(t => $('allTx').appendChild(txRow(t)));
+}
+function txRow(t) {
+  const a = state.accounts.find(x => x.id === t.account_id);
+  const g = state.goals.find(x => x.id === t.goal_id);
+  const toA = t.to_account_id ? state.accounts.find(x => x.id === t.to_account_id) : null;
+  const cur = acctCur(a);
+  const icons = { earning: '↓', spending: '↑', saving: '🎯', transfer: '⇄' };
+  const isTransfer = t.kind === 'transfer';
+  const d = document.createElement('div');
+  d.className = 'tx';
+  d.innerHTML = `
+    <div class="bubble ${t.kind}">${icons[t.kind] || '⇄'}</div>
+    <div class="mid">
+      <div class="t1"></div>
+      <div class="t2">${isTransfer
+        ? fmtDate(t.occurred_on) + ' · ' + (a ? a.name : 'Deleted account') + (toA ? ' → ' + toA.name : '')
+        : fmtDate(t.occurred_on) + ' · ' + (a ? a.name : 'Deleted account') + (g ? ' → ' + g.name : '') + ' · ' + (t.category || 'Other')}</div>
+    </div>
+    <div class="amt ${t.kind}">${isTransfer ? '' : t.kind === 'earning' ? '+' : '-'}${moneyC(t.amount, cur)}</div>
+    <button class="del" title="Delete">×</button>`;
+  d.querySelector('.t1').textContent = t.note || (isTransfer ? 'Transfer' : t.kind === 'saving' ? 'Saved to goal' : t.category || 'Entry');
+  d.querySelector('.del').onclick = async () => {
+    const ids = t.paired ? t.pair_ids : [t.id];
+    queueDelete('tx:'+ids.join(','), t.note || 'Entry', async()=>sb.from('money_transactions').delete().in('id',ids));
+  };
+  return d;
+}
+
+/* ---------- tabs ---------- */
+document.querySelectorAll('nav.tabs button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('nav.tabs button').forEach(x => x.classList.toggle('active', x === b));
+  ['home', 'total', 'goals', 'income', 'activity'].forEach(t => $('tab-' + t).classList.toggle('hidden', t !== b.dataset.tab));
+});
+document.querySelectorAll('#filterChips button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('#filterChips button').forEach(x => x.classList.toggle('sel', x === b));
+  state.filter = b.dataset.f; renderActivity();
+});
+
+/* ---------- sheets ---------- */
+function openSheet(html) {
+  const bg = document.createElement('div');
+  bg.className = 'sheet-bg';
+  bg.innerHTML = `<div class="sheet"><div class="grab"></div><button type="button" class="sheet-x" aria-label="Cancel">×</button>${html}</div>`;
+  bg.addEventListener('click', e => { if (e.target === bg) bg.remove(); });
+  bg.querySelector('.sheet-x').onclick = () => bg.remove();
+  const sheetEl = bg.querySelector('.sheet');
+  let sy = 0, sdy = 0, sdrag = false;
+  bg.querySelectorAll('.grab, h3').forEach(z => {
+    z.style.touchAction = 'none';
+    z.addEventListener('pointerdown', e => { sdrag = true; sy = e.clientY; sdy = 0; sheetEl.style.transition = 'none'; try { z.setPointerCapture(e.pointerId); } catch (_) {} });
+    z.addEventListener('pointermove', e => { if (!sdrag) return; sdy = Math.max(0, e.clientY - sy); sheetEl.style.transform = `translateY(${sdy}px)`; });
+    const finish = () => { if (!sdrag) return; sdrag = false; sheetEl.style.transition = 'transform .18s ease'; if (sdy > 100) { sheetEl.style.transform = 'translateY(105%)'; setTimeout(() => bg.remove(), 170); } else { sheetEl.style.transform = ''; } };
+    z.addEventListener('pointerup', finish);
+    z.addEventListener('pointercancel', finish);
+  });
+  $('sheetRoot').appendChild(bg);
+  return bg;
+}
+const CATS = {
+  earning: ['Job', 'Grades', 'Allowance', 'Gift', 'Work', 'Sale', 'Other'],
+  spending: ['Food', 'Games', 'Shopping', 'Subscriptions', 'Other'],
+  saving: ['Goal deposit'],
+};
+function openEntrySheet(kind = 'spending', goalId = null, template = null) {
+  if (!state.accounts.length) { toast('Add an account first'); openAccountSheet(); return; }
+  const bg = openSheet(`
+    <h3>Add entry</h3><p class="total-note" id="templateNotice"></p>
+    <div class="seg" id="kindSeg">
+      <button data-k="earning">Earned</button>
+      <button data-k="spending" class="sel">Spent</button>
+      <button data-k="saving">Save to goal</button>
+      <button data-k="transfer">Transfer</button>
+    </div>
+    <div class="field" id="amtField"><div class="amt-input"><span class="cur-sym">$</span><input id="fAmt" type="number" inputmode="decimal" min="0" step="0.01" placeholder="0.00"></div></div>
+    <div class="field"><label id="fAcctLabel">Account</label><select id="fAcct">${state.accounts.map(a => `<option value="${a.id}">${esc(a.name)} (${acctCur(a)})</option>`).join('')}</select></div>
+    <div class="field hidden" id="goalField"><label>Goal</label><select id="fGoal">${state.goals.map(g => `<option value="${g.id}">${esc(g.name)}</option>`).join('')}</select></div>
+    <div class="field" id="catField"><label id="catLabel">Category</label><div class="chips" id="catChips"></div><input id="fSource" class="hidden" style="margin-top:8px" placeholder="Or type a source - job, grades, a project..."></div>
+    <div class="field" id="roundupField"><label style="display:flex;align-items:center;gap:10px"><input id="roundupOn" type="checkbox" style="width:20px;height:20px"> Split the cents to a goal (round down)</label><select id="roundupGoal" aria-label="Cents split goal">${state.goals.map(g=>`<option value="${g.id}">${esc(g.name)}</option>`).join('')}</select><p class="acct-note" id="roundupPreview">Optional. Splits the entered total between spending and a goal. No extra money added. USD only.</p></div>
+    <div class="field hidden" id="paydayField"><label>Optional payday split into goals (%)</label><p class="acct-note" style="margin-bottom:10px">Leave blank to keep all income in the account. Goal splits are recorded with the income together, not as spending. Dollars only.</p>${state.goals.map(g=>`<div style="display:flex;align-items:center;gap:10px;margin:8px 0"><span style="flex:1;font-size:14px">${esc(g.name)}</span><input class="paydayPercent" data-goal="${g.id}" aria-label="Percent to ${esc(g.name)}" type="number" min="0" max="100" step="0.01" placeholder="0%" style="width:85px"></div>`).join('')}<div id="paydayPreview" class="acct-note"></div></div>
+    <div class="field hidden" id="destField">
+      <label>Move to (add as many as you like - split it up)</label>
+      <div id="destRows"></div>
+      <button class="mini-btn" id="destAdd">+ Add destination</button>
+      <div class="sub" id="destTotal" style="color:var(--dim); font-size:13px; margin-top:6px"></div>
+    </div>
+    <div class="field"><label>Note (optional)</label><input id="fNote" placeholder="What was it?"></div>
+    <div class="field"><label>Date</label><input id="fDate" type="date" value="${today()}"></div>
+    <button class="btn btn-primary" id="fSave">Add</button>
+    <button class="btn btn-cancel" type="button" id="fCancel">Cancel</button>
+    <details style="margin-top:18px"><summary style="cursor:pointer;min-height:44px">Save as template (does not add an entry)</summary><div class="field"><label for="fTemplateName">Template name</label><input id="fTemplateName" maxlength="60" placeholder="Your own name for this entry"></div><button class="btn btn-cancel" type="button" id="fTemplateSave">Save template only</button><p class="total-note" id="fTemplateStatus" role="status"></p></details>
+    <div class="err" id="fErr"></div>`);
+  let curKind = kind, curCat = null;
+  const chipsEl = bg.querySelector('#catChips');
+  function setKind(k) {
+    curKind = k; curCat = null;
+    const isTransfer = k === 'transfer';
+    bg.querySelectorAll('#kindSeg button').forEach(b => b.classList.toggle('sel', b.dataset.k === k));
+    bg.querySelector('#goalField').classList.toggle('hidden', k !== 'saving' || !state.goals.length);
+    bg.querySelector('#amtField').classList.toggle('hidden', isTransfer);
+    bg.querySelector('#catField').classList.toggle('hidden', isTransfer);
+    bg.querySelector('#destField').classList.toggle('hidden', !isTransfer);
+    bg.querySelector('#fAcctLabel').textContent = isTransfer ? 'From account' : 'Account';
+    bg.querySelector('#catLabel').textContent = k === 'earning' ? 'Source' : 'Category';
+    bg.querySelector('#fSource').classList.toggle('hidden', k !== 'earning');
+    bg.querySelector('#paydayField').classList.toggle('hidden', k !== 'earning');
+    bg.querySelector('#roundupField').classList.toggle('hidden', k !== 'spending' || !state.goals.length);
+    bg.querySelector('h3').textContent = isTransfer ? 'Move money' : 'Add entry';
+    bg.querySelector('#fSave').textContent = isTransfer ? 'Move it' : 'Add';
+    if (isTransfer && !bg.querySelector('#destRows').children.length) addDestRow();
+    chipsEl.innerHTML = '';
+    (CATS[k] || []).forEach(c => {
+      const b = document.createElement('button');
+      b.textContent = c;
+      b.onclick = () => {
+        curCat = c;
+        chipsEl.querySelectorAll('button').forEach(x => x.classList.toggle('sel', x === b));
+        if (k === 'earning') bg.querySelector('#fSource').value = c === 'Other' ? '' : c;
+      };
+      chipsEl.appendChild(b);
+    });
+  }
+  function destOptions() {
+    return state.accounts.map(a => `<option value="acct:${a.id}">${esc(a.name)} (${acctCur(a)})</option>`).join('') +
+      state.goals.map(g => `<option value="goal:${g.id}">🎯 ${esc(g.name)}</option>`).join('');
+  }
+  function addDestRow() {
+    const row = document.createElement('div');
+    row.className = 'dest-row';
+    row.innerHTML = `<select>${destOptions()}</select><div class="amt-wrap"><span class="cur-sym">$</span><input type="number" inputmode="decimal" min="0" step="0.01" placeholder="0.00"></div><button class="x">×</button>`;
+    row.querySelector('.x').onclick = () => { row.remove(); updDestTotal(); };
+    row.querySelector('input').addEventListener('input', updDestTotal);
+    bg.querySelector('#destRows').appendChild(row);
+    updDestTotal();
+  }
+  function updDestTotal() {
+    let sum = 0;
+    bg.querySelectorAll('#destRows .dest-row input').forEach(i => { const v = parseFloat(i.value); if (v > 0) sum += v; });
+    bg.querySelector('#destTotal').textContent = sum > 0 ? `Total moving: ${moneyC(sum, selCur())}` : '';
+  }
+  bg.querySelector('#destAdd').onclick = addDestRow;
+  bg.querySelector('#fCancel').onclick = () => bg.remove();
+  const selCur = () => acctCur(state.accounts.find(a => a.id === bg.querySelector('#fAcct').value));
+  function updCurSym() {
+    const s = curSym(selCur());
+    bg.querySelectorAll('.cur-sym').forEach(el => { el.textContent = s; });
+  }
+  bg.querySelector('#fAcct').addEventListener('change', updCurSym);
+  function paydayParts() {
+    const cents = Math.round((Number(bg.querySelector('#fAmt').value) || 0) * 100);
+    const inputs = [...bg.querySelectorAll('.paydayPercent')];
+    const percent = inputs.reduce((n,i)=>n+(Number(i.value)||0),0);
+    const parts = inputs.map(i=>({goal:i.dataset.goal,percent:Number(i.value)||0,cents:Math.floor(cents*(Number(i.value)||0)/100)}));
+    return {cents,percent,parts,saved:parts.reduce((n,p)=>n+p.cents,0)};
+  }
+  function previewPayday() {
+    const p=paydayParts();
+    bg.querySelector('#paydayPreview').textContent = p.percent>100 ? 'Total percentages must not exceed 100%.' : `To goals: ${money(p.saved/100)} · Stays in account: ${money((p.cents-p.saved)/100)}. Splits round down to cents; any remainder stays in the account.`;
+  }
+  bg.querySelectorAll('.paydayPercent').forEach(i=>i.oninput=previewPayday);
+  bg.querySelector('#fAmt').addEventListener('input',previewPayday);
+  previewPayday();
+  function roundupCents() { const cents=Math.round((Number(bg.querySelector('#fAmt').value)||0)*100); return cents%100; }
+  function previewRoundup() {const total=Math.round((Number(bg.querySelector('#fAmt').value)||0)*100);bg.querySelector('#roundupPreview').textContent=`If selected: ${money((total-roundupCents())/100)} spending + ${money(roundupCents()/100)} to the goal = ${money(total/100)} total. No extra outflow. USD only.`;}
+  bg.querySelector('#fAmt').addEventListener('input',previewRoundup);
+  previewRoundup();
+  bg.querySelectorAll('#kindSeg button').forEach(b => b.onclick = () => setKind(b.dataset.k));
+  setKind(kind); updCurSym();
+  if (goalId) bg.querySelector('#fGoal').value = goalId;
+  if (kind !== 'transfer') bg.querySelector('#fAmt').focus();
+  if(template){
+    bg.querySelector('#templateNotice').textContent='Template: '+template.name+'. Review all fields. Date is today. Nothing is recorded until you tap Add or Move it.';
+    bg.querySelector('#fAcct').value=template.account_id;bg.querySelector('#fAmt').value=template.amount??'';
+    bg.querySelector('#fNote').value=template.note||'';bg.querySelector('#fSource').value=template.source||'';
+    if(template.goal_id)bg.querySelector('#fGoal').value=template.goal_id;
+    curCat=template.category||null;chipsEl.querySelectorAll('button').forEach(b=>b.classList.toggle('sel',b.textContent===curCat));
+    bg.querySelector('#roundupOn').checked=!!template.cents; if(template.cents_goal)bg.querySelector('#roundupGoal').value=template.cents_goal;
+    for(const input of bg.querySelectorAll('.paydayPercent'))input.value=template.percent?.[input.dataset.goal]??'';
+    if(kind==='transfer'){bg.querySelector('#destRows').innerHTML='';for(const dest of template.destinations||[]){addDestRow();const row=bg.querySelector('#destRows').lastElementChild;row.querySelector('select').value=dest.target;row.querySelector('input').value=dest.amount??'';}}
+    updCurSym();previewRoundup();previewPayday();updDestTotal();
+  }
+  bg.querySelector('#fTemplateSave').onclick=()=>{
+    const status=bg.querySelector('#fTemplateStatus'),name=bg.querySelector('#fTemplateName').value.trim();
+    if(!name){status.textContent='Give the template a name.';return;}
+    const raw=bg.querySelector('#fAmt').value,amount=raw===''?null:Math.round(Number(raw)*100)/100;
+    if(curKind!=='transfer'&&amount!==null&&(!Number.isFinite(amount)||amount<=0)){status.textContent='Use a positive amount or leave it blank for each time.';return;}
+    const item={id:crypto.randomUUID(),name,kind:curKind,account_id:bg.querySelector('#fAcct').value,amount,category:curCat,source:bg.querySelector('#fSource').value.trim(),note:bg.querySelector('#fNote').value.trim(),goal_id:curKind==='saving'?bg.querySelector('#fGoal').value:null,cents:curKind==='spending'&&bg.querySelector('#roundupOn').checked,cents_goal:bg.querySelector('#roundupGoal').value,percent:Object.fromEntries([...bg.querySelectorAll('.paydayPercent')].map(i=>[i.dataset.goal,i.value])),destinations:curKind==='transfer'?[...bg.querySelectorAll('#destRows .dest-row')].map(r=>({target:r.querySelector('select').value,amount:r.querySelector('input').value})):[]};
+    try{const items=readTemplates();if(items.length>=30)throw new Error('You have 30 templates. Delete one before adding another.');items.push(item);writeTemplates(items);renderTemplates();status.textContent='Template saved in this browser. No entry was added.';bg.querySelector('#fTemplateSave').disabled=true;}
+    catch(e){status.textContent=e.message||'Template could not be saved in this browser.';}
+  };
+
+  bg.querySelector('#fSave').onclick = async () => {
+    const note = bg.querySelector('#fNote').value.trim() || null;
+    const on = bg.querySelector('#fDate').value || today();
+    if (curKind === 'transfer') {
+      const from = bg.querySelector('#fAcct').value;
+      const rows = [];
+      let bad = null;
+      const dests = [...bg.querySelectorAll('#destRows .dest-row')];
+      if (!dests.length) bad = 'Add a destination';
+      const fromCur = acctCur(state.accounts.find(a => a.id === from));
+      for (const r of dests) {
+        const sel = r.querySelector('select').value;
+        const amt = parseFloat(r.querySelector('input').value);
+        if (!amt || amt <= 0) { bad = 'Every destination needs an amount'; break; }
+        const [type, id] = sel.split(':');
+        if (type === 'acct' && id === from) { bad = "Can't move money into the same account"; break; }
+        if (type === 'acct' && acctCur(state.accounts.find(a => a.id === id)) !== fromCur) { bad = "Can't move between different currencies - no exchange rate, so convert it yourself first"; break; }
+        if (type === 'goal' && fromCur !== 'USD') { bad = 'Goals are in dollars - save from a dollar account'; break; }
+        if (type === 'goal') {
+          rows.push({ account_id: from, amount: amt, kind: 'saving', category: 'Goal deposit', goal_id: id, note, occurred_on: on });
+        } else {
+          const tid = crypto.randomUUID();
+          rows.push({ account_id: from, amount: amt, kind: 'transfer', direction: 'out', transfer_id: tid, category: 'Transfer', note, occurred_on: on });
+          rows.push({ account_id: id, amount: amt, kind: 'transfer', direction: 'in', transfer_id: tid, category: 'Transfer', note, occurred_on: on });
+        }
+      }
+      if (bad) { bg.querySelector('#fErr').textContent = bad; return; }
+      const { error } = await sb.from('money_transactions').insert(rows);
+      if (error) { bg.querySelector('#fErr').textContent = error.message; return; }
+      bg.remove(); toast('Money moved ⇄'); loadAll();
+      return;
+    }
+    const amt = Math.round(parseFloat(bg.querySelector('#fAmt').value)*100)/100;
+    if (!amt || amt <= 0) { bg.querySelector('#fErr').textContent = 'Enter an amount'; return; }
+    if (curKind === 'saving' && selCur() !== 'USD') { bg.querySelector('#fErr').textContent = 'Goals are in dollars - save from a dollar account'; return; }
+    const srcText = curKind === 'earning' ? bg.querySelector('#fSource').value.trim() : '';
+    const row = {
+      account_id: bg.querySelector('#fAcct').value,
+      amount: amt,
+      kind: curKind,
+      category: curKind === 'saving' ? 'Goal deposit' : (srcText || curCat || 'Other'),
+      note,
+      occurred_on: on,
+      goal_id: curKind === 'saving' ? (bg.querySelector('#fGoal').value || null) : null,
+    };
+    let rowsToAdd = [row];
+    if (curKind === 'earning') {
+      const p = paydayParts();
+      if ([...bg.querySelectorAll('.paydayPercent')].some(i=>!Number.isFinite(Number(i.value))||Number(i.value)<0) || p.percent>100) {bg.querySelector('#fErr').textContent='Use percentages from 0 to 100, totaling no more than 100%.';return;}
+      if(p.percent>0 && selCur()!=='USD'){bg.querySelector('#fErr').textContent='Payday goal splits use USD accounts only.';return;}
+      row.amount=p.cents/100;
+      rowsToAdd.push(...p.parts.filter(p=>p.cents>0).map(p=>({account_id:row.account_id,amount:p.cents/100,kind:'saving',category:'Payday split',goal_id:p.goal,note:note||'Payday split',occurred_on:on})));
+    }
+    if(curKind==='spending' && bg.querySelector('#roundupOn').checked){
+      if(selCur()!=='USD'){bg.querySelector('#fErr').textContent='Splitting cents into goals requires a USD account.';return;}
+      const goal=bg.querySelector('#roundupGoal').value, cents=roundupCents();
+      if(!goal){bg.querySelector('#fErr').textContent='Choose a goal for the cents.';return;}
+      const totalCents=Math.round(amt*100);row.amount=(totalCents-cents)/100;rowsToAdd=row.amount>0?[row]:[];
+      if(cents>0)rowsToAdd.push({account_id:row.account_id,amount:cents/100,kind:'saving',category:'Round-down split',goal_id:goal,note:note ? 'Cents split: '+note : 'Cents split',occurred_on:on});
+    }
+    bg.querySelector('#fSave').disabled=true;
+    const { error } = await sb.from('money_transactions').insert(rowsToAdd);
+    if (error) { bg.querySelector('#fSave').disabled=false; bg.querySelector('#fErr').textContent = error.message; return; }
+    bg.remove();
+    toast(curKind === 'earning' ? 'Money in 💪' : curKind === 'saving' ? 'Saved toward your goal 🎯' : 'Logged');
+    loadAll();
+  };
+}
+function openAccountInfo(a) {
+  const bal = acctBalance(a.id);
+  const amin = acctMin(a);
+  const nTx = state.txs.filter(t => t.account_id === a.id || t.to_account_id === a.id).length;
+  const bg = openSheet(`
+    <h3>${a.icon || '🏦'} ${esc(a.name)}</h3>
+    <div class="ainfo">
+      <div class="ainfo-row"><span>${amin != null ? 'All of the money' : 'Balance'}</span><b>${moneyC(bal, acctCur(a))}</b></div>
+      ${amin ? `<div class="ainfo-row"><span>Spending money</span><b>${moneyC(bal - amin, acctCur(a))}</b></div>` : ''}<div class="ainfo-row"><span>Minimum balance</span><b>${moneyC(amin || 0, acctCur(a))}</b></div>
+      <div class="ainfo-row"><span>Currency</span><b>${acctCur(a)}</b></div>
+      <div class="ainfo-row"><span>Entries</span><b>${nTx}</b></div>
+    </div>
+    <div class="acct-note" style="margin:12px 2px 2px">Turn on Edit at the top of the screen to change this account.</div>
+    <button class="btn btn-primary" type="button" id="aiCheck">Check against real balance</button>
+    <button class="btn btn-cancel" type="button" id="aiClose">Close</button>`);
+  bg.querySelector('#aiClose').onclick = () => bg.remove();
+  bg.querySelector('#aiCheck').onclick=()=>{bg.remove();openBalanceCheck(a);};
+}
+async function readAccountBalance(id) {
+  const [{data,error},txs]=await Promise.all([sb.from('money_accounts').select('*').eq('id',id).single(),readFullTable('money_transactions')]);
+  if(error)throw error;
+  const entries=txs.filter(t=>t.account_id===id);
+  const cents=Math.round(Number(data.starting_balance)*100)+entries.reduce((n,t)=>n+((t.kind==='earning'||(t.kind==='transfer'&&t.direction==='in'))?1:-1)*Math.round(Number(t.amount)*100),0);
+  return {account:data,cents,version:JSON.stringify({account:data,entries})};
+}
+async function openBalanceCheck(a) {
+  const owner=state.user?.id;
+  const bg=openSheet(`<h3>Balance check: ${esc(a.name)}</h3><p class="total-note">Enter the balance you want recorded for this account, including any minimum you keep. If money in your real bank balance is already tracked separately in goals, subtract that goal money first to avoid counting it twice. This app does not connect to your bank. Goal savings are separate in this tracker. An adjustment changes only your recorded balance, not your bank.</p><p id="bcRecorded">Checking recorded balance...</p><div class="field"><label for="bcActual">Real balance (${esc(acctCur(a))})</label><input id="bcActual" type="number" step="0.01" inputmode="decimal" placeholder="0.00"></div><div class="field"><label for="bcNote">Note (optional)</label><input id="bcNote" maxlength="200" placeholder="Why the balance differs"></div><p id="bcPreview" class="total-note" role="status"></p><button class="btn btn-primary" id="bcReview" disabled>Review difference</button><button class="btn btn-primary hidden" id="bcConfirm">Confirm adjustment</button><button class="btn btn-cancel" id="bcCancel">Cancel</button><div id="bcError" class="err"></div>`);
+  let snapshot=null,reviewed=null;
+  const err=bg.querySelector('#bcError'),confirm=bg.querySelector('#bcConfirm'),review=bg.querySelector('#bcReview');
+  bg.querySelector('#bcCancel').onclick=()=>bg.remove();
+  const reset=()=>{reviewed=null;confirm.classList.add('hidden');bg.querySelector('#bcPreview').textContent='';};
+  bg.querySelector('#bcActual').oninput=reset;bg.querySelector('#bcNote').oninput=reset;
+  try{snapshot=await readAccountBalance(a.id);if(!bg.isConnected)return;bg.querySelector('#bcRecorded').textContent='Recorded full balance: '+moneyC(snapshot.cents/100,acctCur(snapshot.account));review.disabled=false;}
+  catch(e){err.textContent='Could not verify the recorded balance: '+e.message;return;}
+  review.onclick=()=>{
+    err.textContent='';const raw=bg.querySelector('#bcActual').value,actual=Math.round(Number(raw)*100);
+    if(raw===''||!Number.isSafeInteger(actual)){err.textContent='Enter the balance you checked.';return;}
+    const delta=actual-snapshot.cents;
+    reviewed={actual,delta,note:bg.querySelector('#bcNote').value.trim()};
+    bg.querySelector('#bcPreview').textContent=delta===0?'Your recorded balance already matches. Nothing will be added.':`Recorded ${moneyC(snapshot.cents/100,acctCur(a))} → ${moneyC(actual/100,acctCur(a))}. Adjustment: ${delta>0?'+':''}${moneyC(delta/100,acctCur(a))}. Adds a clearly labeled balance adjustment, not income or spending in charts. Your prior entries stay unchanged.`;
+    confirm.classList.toggle('hidden',delta===0);
+  };
+  confirm.onclick=async()=>{
+    if(!reviewed||state.user?.id!==owner)return;confirm.disabled=true;review.disabled=true;err.textContent='';
+    try{
+      if([...pendingDeletes.keys()].some(k=>k.startsWith('tx:')||k==='account:'+a.id))throw new Error('Finish or undo pending deletions before checking a balance.');
+      const current=await readAccountBalance(a.id);
+      if(current.version!==snapshot.version){snapshot=current;reset();bg.querySelector('#bcRecorded').textContent='Recorded full balance: '+moneyC(current.cents/100,acctCur(current.account));throw new Error('Records changed. Review the difference again before confirming.');}
+      if(state.user?.id!==owner)throw new Error('Signed-in account changed. Cancel and try again.');
+      const {error}=await sb.from('money_transactions').insert({account_id:a.id,kind:reviewed.delta>0?'earning':'spending',amount:Math.abs(reviewed.delta)/100,category:'Balance adjustment',note:'[Balance check] '+(reviewed.note||'Recorded balance matched to your entered balance'),occurred_on:today()});
+      if(error)throw error;bg.remove();toast('Recorded balance adjusted');await loadAll();
+    }catch(e){err.textContent=e.message||'Could not save the adjustment';}
+    finally{confirm.disabled=false;review.disabled=false;}
+  };
+}
+function openAccountSheet(a = null) {
+  const icons = ['🏦', '💸', '📱', '🍎', '💳', '🐷', '🪙', '💵', '💶', '💷'];
+  const curPreset = ['USD', 'EUR', 'GBP'];
+  const cur0 = acctCur(a);
+  const curIsPreset = curPreset.includes(cur0);
+  const bg = openSheet(`
+    <h3>${a ? 'Edit account' : 'Add account'}</h3>
+    <div class="field"><label>Name</label><input id="aName" placeholder="Bank of America, Cash App, Cash…" value="${a ? esc(a.name) : ''}"></div>
+    <div class="field"><label>Currency</label><div class="chips" id="aCur">${curPreset.map((c, x) => `<button data-c="${c}" class="${(a ? c === cur0 && curIsPreset : x === 0) ? 'sel' : ''}">${CURRENCIES[c].sym} ${c}</button>`).join('')}</div></div>
+    <div class="field"><label>Or type another currency code</label><input id="aCurCustom" placeholder="e.g. CAD, JPY, MXN - overrides the pick above" maxlength="6" value="${a && !curIsPreset ? esc(cur0) : ''}"></div>
+    <div class="field"><label>Icon</label><div class="chips" id="aIcons">${icons.map((i, x) => `<button data-i="${i}" class="${a && a.icon === i || (!a && x === 0) ? 'sel' : ''}">${i}</button>`).join('')}</div></div>
+    <div class="field"><label>Or type your own emoji</label><input id="aCustom" placeholder="Any emoji - overrides the pick above" value="${a && !icons.includes(a.icon) ? esc(a.icon) : ''}"></div>
+    <div class="field"><label>${a ? 'Total balance' : 'Current balance'}</label><div class="amt-input"><span id="aBalSym">${curSym(cur0)}</span><input id="aBal" type="number" inputmode="decimal" step="0.01" value="${a ? acctBalance(a.id) : ''}" placeholder="0.00"></div></div>
+    <div class="field"><label>Minimum balance (optional) - the card then shows Spending money above the minimum, with the full balance underneath</label><div class="amt-input"><span id="aMinSym">${curSym(cur0)}</span><input id="aMin" type="number" inputmode="decimal" min="0" step="0.01" placeholder="e.g. 100" value="${a && a.minimum_balance != null ? Number(a.minimum_balance) : ''}"></div></div>
+    <button class="btn btn-primary" id="aSave">${a ? 'Save changes' : 'Add account'}</button>
+    <button class="btn btn-cancel" type="button" id="aCancel">Cancel</button>
+    ${a ? '<button class="btn" id="aDel" style="color:var(--red); margin-top:6px">Delete account</button>' : ''}
+    <div class="err" id="aErr"></div>`);
+  let icon = a ? a.icon : icons[0];
+  let cur = a && curIsPreset ? cur0 : 'USD';
+  bg.querySelectorAll('#aCur button').forEach(b => b.onclick = () => {
+    cur = b.dataset.c;
+    bg.querySelector('#aCurCustom').value = '';
+    bg.querySelector('#aBalSym').textContent = curSym(cur);
+    bg.querySelector('#aMinSym').textContent = curSym(cur);
+    bg.querySelectorAll('#aCur button').forEach(x => x.classList.toggle('sel', x === b));
+  });
+  bg.querySelector('#aCurCustom').addEventListener('input', () => {
+    const v = bg.querySelector('#aCurCustom').value.trim().toUpperCase();
+    if (v) { bg.querySelectorAll('#aCur button').forEach(x => x.classList.remove('sel')); bg.querySelector('#aBalSym').textContent = curSym(v); bg.querySelector('#aMinSym').textContent = curSym(v); }
+  });
+  bg.querySelectorAll('#aIcons button').forEach(b => b.onclick = () => {
+    icon = b.dataset.i;
+    bg.querySelector('#aCustom').value = '';
+    bg.querySelectorAll('#aIcons button').forEach(x => x.classList.toggle('sel', x === b));
+  });
+  bg.querySelector('#aCancel').onclick = () => bg.remove();
+  bg.querySelector('#aCustom').addEventListener('input', () => {
+    if (bg.querySelector('#aCustom').value.trim()) bg.querySelectorAll('#aIcons button').forEach(x => x.classList.remove('sel'));
+  });
+  bg.querySelector('#aSave').onclick = async () => {
+    const name = bg.querySelector('#aName').value.trim();
+    if (!name) { bg.querySelector('#aErr').textContent = 'Give it a name'; return; }
+    let bal = parseFloat(bg.querySelector('#aBal').value) || 0;
+    if (a) bal = bal - (acctBalance(a.id) - Number(a.starting_balance)); // total shown -> starting stored
+    const ic = firstEmoji(bg.querySelector('#aCustom').value) || icon;
+    const custom = bg.querySelector('#aCurCustom').value.trim().toUpperCase();
+    const currency = custom || cur;
+    if (!/^[A-Z]{3,6}$/.test(currency)) { bg.querySelector('#aErr').textContent = 'Currency code must be 3-6 letters, like EUR'; return; }
+    const minRaw = bg.querySelector('#aMin').value.trim();
+    const minimum_balance = minRaw === '' ? null : parseFloat(minRaw);
+    if (minimum_balance != null && !(minimum_balance >= 0)) { bg.querySelector('#aErr').textContent = 'Minimum must be 0 or more'; return; }
+    let error;
+    if (a) ({ error } = await sb.from('money_accounts').update({ name, icon: ic, starting_balance: bal, currency, minimum_balance }).eq('id', a.id));
+    else ({ error } = await sb.from('money_accounts').insert({ name, icon: ic, starting_balance: bal, currency, minimum_balance, sort_order: state.accounts.length }));
+    if (error) { bg.querySelector('#aErr').textContent = error.message; return; }
+    bg.remove(); toast(a ? 'Account updated' : 'Account added'); loadAll();
+  };
+  if (a) bg.querySelector('#aDel').onclick = async () => {
+    if (!confirm('Delete this account and all its entries?')) return;
+    bg.remove(); queueDelete('account:'+a.id, 'Account: '+a.name, async()=>sb.from('money_accounts').delete().eq('id',a.id));
+  };
+}
+function openGoalSheet(g = null) {
+  const emojis = ['🎯', '📱', '🎮', '🎧', '🖥️', '🚲', '👟', '📷', '🛹', '🎸', '✈️', '🏎️'];
+  const isPreset = g && emojis.includes(g.emoji);
+  const bg = openSheet(`
+    <h3>${g ? 'Edit goal' : 'New savings goal'}</h3>
+    <div class="field"><label>What are you saving for?</label><input id="gName" placeholder="iPhone Duo, projector…" value="${g ? esc(g.name) : ''}"></div>
+    <div class="field"><label>Emoji</label><div class="chips" id="gEmojis">${emojis.map((e, x) => `<button data-e="${e}" class="${(g ? e === g.emoji && isPreset : x === 0) ? 'sel' : ''}">${e}</button>`).join('')}</div></div>
+    <div class="field"><label>Or type your own emoji</label><input id="gCustom" placeholder="Any emoji - overrides the pick above" value="${g && !isPreset ? esc(g.emoji) : ''}"></div>
+    <div class="field"><label>Target amount (optional)</label><div class="amt-input"><span>$</span><input id="gTarget" type="number" inputmode="decimal" min="0" step="0.01" placeholder="0.00" value="${g && g.target != null ? Number(g.target) : ''}"></div><div class="hint" id="gTargetHint"></div></div>
+    <div class="field"><label>Items (optional) - if it's more than one thing, list them and the goal adds up all their prices</label><div id="gItems"></div><button type="button" class="mini-btn" id="gItemAdd">+ Add an item</button></div>
+    <div class="field"><label>Shipping + extra fees (optional) - tracked separately, never counted in the goal total or bars</label><div class="amt-input" style="margin-bottom:8px"><span>$</span><input id="gShipping" type="number" inputmode="decimal" min="0" step="0.01" placeholder="Shipping unknown - leave blank" aria-label="Shipping (blank means unknown)" value="${g && g.shipping != null ? Number(g.shipping) : ''}"></div><div class="amt-input"><span>$</span><input id="gFees" type="number" inputmode="decimal" min="0" step="0.01" placeholder="Fees unknown - leave blank" aria-label="Fees (blank means unknown)" value="${g && g.fees != null ? Number(g.fees) : ''}"></div></div>
+    <div id="gCostPreview"></div>
+    <div class="field"><label>Due date (optional)</label><input id="gDue" type="date" value="${g && g.due_date ? g.due_date : ''}"></div>
+    <div class="field"><label>Where to buy (optional)</label><input id="gBuyFrom" placeholder="Mondo Shop, Apple, Amazon…" value="${g && g.buy_from ? esc(g.buy_from) : ''}"></div>
+    <div class="field"><label>Availability (optional)</label><select id="gStatus"><option value="">No status</option><option value="available">Available</option><option value="preorder">Pre-order</option><option value="comingsoon">Coming soon</option><option value="soldout">Sold out</option></select></div>
+    <div class="field"><label>Categories (optional) - make your own, like Amazon, family, figures or tech; a goal can have several</label><div class="chips" id="gCats"></div><div class="gcat-new"><input id="gCatNew" placeholder="Type a new category" maxlength="30"><button type="button" class="mini-btn" id="gCatAdd">+ Add</button></div></div>
+    <div class="field"><label>Link to what you're buying (optional)</label><input id="gLink" type="url" placeholder="https://…" value="${g && g.link ? esc(g.link) : ''}"></div>
+    <div class="field"><label>Note (optional)</label><input id="gNote" placeholder="What is it, where to get it…" value="${g && g.note ? esc(g.note) : ''}"></div>
+    <button class="btn btn-primary" id="gSave">${g ? 'Save changes' : 'Create goal'}</button>
+    <button class="btn btn-cancel" type="button" id="gCancel">Cancel</button>
+    <div class="err" id="gErr"></div>`);
+  let emoji = g && isPreset ? g.emoji : emojis[0];
+  bg.querySelector('#gStatus').value = g && g.status ? g.status : '';
+  const itemsBox = bg.querySelector('#gItems');
+  const targetInput = bg.querySelector('#gTarget');
+  const targetHint = bg.querySelector('#gTargetHint');
+  function readItemRows() {
+    const out = [];
+    for (const r of itemsBox.querySelectorAll('.g-item-row')) {
+      const name = r.querySelector('.gi-name').value.trim();
+      const raw = r.querySelector('.gi-price input').value.trim();
+      const link = r.querySelector('.gi-link').value.trim();
+      if (!name && !raw && !link) continue;
+      out.push({ name, raw, link });
+    }
+    return out;
+  }
+  function syncTarget() {
+    const priced = readItemRows().filter(x => x.raw !== '');
+    if (priced.length) {
+      const sum = priced.reduce((s, x) => s + (parseFloat(x.raw) || 0), 0);
+      targetInput.value = sum > 0 ? sum.toFixed(2) : '';
+      targetInput.disabled = true;
+      targetHint.textContent = 'Set automatically - adds up your item prices below.';
+    } else {
+      targetInput.disabled = false;
+      targetHint.textContent = '';
+    }
+    previewCost();
+  }
+  function previewCost(){
+    const value=id=>{const v=bg.querySelector(id).value.trim();return v===''?null:Number(v);};
+    bg.querySelector('#gCostPreview').innerHTML=costPlanHtml(value('#gTarget'),value('#gShipping'),value('#gFees'),readItemRows().some(i=>i.raw===''));
+  }
+  ['#gTarget','#gShipping','#gFees'].forEach(id=>bg.querySelector(id).addEventListener('input',previewCost));
+  function itemRow(it) {
+    const r = document.createElement('div');
+    r.className = 'g-item-row';
+    r.innerHTML = `<input class="gi-name" placeholder="Item name" value="${it ? esc(it.name) : ''}"><div class="gi-price"><span>$</span><input type="number" inputmode="decimal" min="0" step="0.01" placeholder="0.00" value="${it && it.price != null ? Number(it.price) : ''}"></div><button type="button" class="gi-del" aria-label="Remove item">×</button><input class="gi-link" type="url" placeholder="Link to it (optional)" value="${it && it.link ? esc(it.link) : ''}">`;
+    r.querySelector('.gi-del').onclick = () => { r.remove(); syncTarget(); };
+    r.querySelectorAll('input').forEach(inp => inp.addEventListener('input', syncTarget));
+    itemsBox.appendChild(r);
+  }
+  (g ? goalItems(g.id) : []).forEach(itemRow);
+  bg.querySelector('#gItemAdd').onclick = () => { itemRow(null); syncTarget(); };
+  syncTarget();
+  bg.querySelectorAll('#gEmojis button').forEach(b => b.onclick = () => {
+    emoji = b.dataset.e;
+    bg.querySelector('#gCustom').value = '';
+    bg.querySelectorAll('#gEmojis button').forEach(x => x.classList.toggle('sel', x === b));
+  });
+  bg.querySelector('#gCustom').addEventListener('input', () => {
+    if (bg.querySelector('#gCustom').value.trim()) bg.querySelectorAll('#gEmojis button').forEach(x => x.classList.remove('sel'));
+  });
+  const selCats = new Set(g ? goalCats(g) : []);
+  const normCat = v => v.trim().replace(/\s+/g, ' ');
+  function renderCatChips() {
+    const box = bg.querySelector('#gCats');
+    const known = [...new Set([...GOAL_CATEGORY_PRESETS, ...state.goals.flatMap(x => goalCats(x)), ...selCats])].sort((a, b) => a.localeCompare(b));
+    box.innerHTML = known.length ? '' : '<span style="color:var(--dim); font-size:13px">No categories yet - type one below.</span>';
+    for (const c of known) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = c;
+      b.className = selCats.has(c) ? 'sel' : '';
+      b.onclick = () => { selCats.has(c) ? selCats.delete(c) : selCats.add(c); renderCatChips(); };
+      box.appendChild(b);
+    }
+  }
+  bg.querySelector('#gCatAdd').onclick = () => {
+    const inp = bg.querySelector('#gCatNew');
+    const v = normCat(inp.value);
+    if (!v) return;
+    const existing = [...GOAL_CATEGORY_PRESETS, ...selCats, ...state.goals.flatMap(x => goalCats(x))].find(c => c.toLowerCase() === v.toLowerCase());
+    selCats.add(existing || v);
+    inp.value = '';
+    renderCatChips();
+  };
+  bg.querySelector('#gCatNew').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); bg.querySelector('#gCatAdd').click(); } });
+  renderCatChips();
+  bg.querySelector('#gCancel').onclick = () => bg.remove();
+  bg.querySelector('#gSave').onclick = async () => {
+    const name = bg.querySelector('#gName').value.trim();
+    const itemRows = readItemRows();
+    for (const x of itemRows) {
+      if (!x.name) { bg.querySelector('#gErr').textContent = 'Give every item a name, or remove the row'; return; }
+      if (x.raw === '') { x.price = null; }
+      else {
+        x.price = parseFloat(x.raw);
+        if (!isFinite(x.price) || x.price <= 0) { bg.querySelector('#gErr').textContent = 'Item prices must be more than 0, or leave the price empty'; return; }
+      }
+      if (x.link && !/^https?:\/\//i.test(x.link)) x.link = 'https://' + x.link;
+    }
+    const pricedRows = itemRows.filter(x => x.price !== null);
+    const rawTarget = bg.querySelector('#gTarget').value.trim();
+    const target = pricedRows.length ? +(pricedRows.reduce((s, x) => s + x.price, 0)).toFixed(2) : (rawTarget === '' ? null : parseFloat(rawTarget));
+    if (!name) { bg.querySelector('#gErr').textContent = 'Give it a name'; return; }
+    if (target !== null && (!isFinite(target) || target <= 0)) { bg.querySelector('#gErr').textContent = 'Target must be more than 0, or leave it empty'; return; }
+    let link = bg.querySelector('#gLink').value.trim() || null;
+    if (link && !/^https?:\/\//i.test(link)) link = 'https://' + link;
+    const due_date = bg.querySelector('#gDue').value || null;
+    const note = bg.querySelector('#gNote').value.trim() || null;
+    const buy_from = bg.querySelector('#gBuyFrom').value.trim() || null;
+    const status = bg.querySelector('#gStatus').value || null;
+    const shipRaw = bg.querySelector('#gShipping').value.trim();
+    const feesRaw = bg.querySelector('#gFees').value.trim();
+    const shipping = shipRaw === '' ? null : parseFloat(shipRaw);
+    const fees = feesRaw === '' ? null : parseFloat(feesRaw);
+    if ((shipping !== null && (!isFinite(shipping) || shipping < 0)) || (fees !== null && (!isFinite(fees) || fees < 0))) { bg.querySelector('#gErr').textContent = 'Shipping and fees must be 0 or more, or leave them empty'; return; }
+    const em = firstEmoji(bg.querySelector('#gCustom').value) || emoji;
+    let error, newGoal = null;
+    const categories = [...selCats];
+    if (g) ({ error } = await sb.from('money_goals').update({ name, emoji: em, target, due_date, link, note, buy_from, status, shipping, fees, categories }).eq('id', g.id));
+    else ({ data: newGoal, error } = await sb.from('money_goals').insert({ name, emoji: em, target, due_date, link, note, buy_from, status, shipping, fees, categories }).select().single());
+    if (error) { bg.querySelector('#gErr').textContent = error.message; return; }
+    const gid = g ? g.id : newGoal.id;
+    if (g) {
+      const del = await sb.from('money_goal_items').delete().eq('goal_id', gid);
+      if (del.error) { bg.querySelector('#gErr').textContent = del.error.message; return; }
+    }
+    if (itemRows.length) {
+      const ins = await sb.from('money_goal_items').insert(itemRows.map(x => ({ goal_id: gid, name: x.name, price: x.price, link: x.link || null })));
+      if (ins.error) { bg.querySelector('#gErr').textContent = ins.error.message; return; }
+    }
+    bg.remove(); toast(g ? 'Goal updated' : 'Goal created 🎯'); loadAll();
+  };
+}
+const firstEmoji = s => {
+  s = String(s || '').trim();
+  if (!s) return '';
+  try { return [...new Intl.Segmenter('en', { granularity: 'grapheme' }).segment(s)][0].segment; } catch (e) { return Array.from(s)[0]; }
+};
+function esc(s) { return String(s).replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c])); }
+function linkify(s) { return esc(s).replace(/(https?:\/\/[^\s<]+|[a-z0-9-]+\.[a-z]{2,}(\/[^\s<]*)?)/gi, m => { const u = /^https?:\/\//i.test(m) ? m : 'https://' + m; return `<a href="${u}" target="_blank" rel="noopener">${m}</a>`; }); }
+let foreignExpanded=false;
+const ACCOUNT_COLORS=['#34dc8a','#49a8ff','#a98bff','#f5ae48','#ed7198','#72d5d1'];
+function accountLayout(){try{const value=JSON.parse(localStorage.getItem('moneyAccountLayout:'+state.user?.id)||'{}');return value&&typeof value==='object'?value:{};}catch(_){return {};}}
+function orderedAccounts(){const ids=accountLayout().order||[];return [...state.accounts].sort((a,b)=>{const x=ids.indexOf(a.id),y=ids.indexOf(b.id);return(x<0?9999:x)-(y<0?9999:y);});}
+function saveAccountLayout(value){try{localStorage.setItem('moneyAccountLayout:'+state.user.id,JSON.stringify(value));renderHome();renderAccountArrange();}catch(_){toast('Could not save account layout in this browser.');}}
+function renderAccountArrange(){
+ const box=$('accountArrange');if(!box)return;const accounts=orderedAccounts();box.innerHTML='';
+ accounts.forEach((a,i)=>{const row=document.createElement('div');row.style.cssText='border-top:1px solid var(--line);padding:12px 0';row.innerHTML=`<div style="display:flex;gap:8px;align-items:center"><span class="account-drag" draggable="true" role="button" tabindex="0" aria-label="Drag ${esc(a.name)} to reorder" style="padding:10px;cursor:grab">☰</span><span style="flex:1;font-size:13px">${esc(a.name)} · ${esc(acctCur(a))}</span><button class="up mini-btn" style="min-width:44px;min-height:44px" aria-label="Move ${esc(a.name)} up" ${i===0?'disabled':''}>↑</button><button class="down mini-btn" style="min-width:44px;min-height:44px" aria-label="Move ${esc(a.name)} down" ${i===accounts.length-1?'disabled':''}>↓</button></div><div style="display:flex;flex-wrap:wrap;gap:6px" class="colors">${ACCOUNT_COLORS.map(c=>`<button style="background:${c};border:2px solid ${accountLayout().colors?.[a.id]===c?'var(--text)':'transparent'};border-radius:50%;width:36px;height:36px" data-color="${c}" aria-label="Set ${esc(a.name)} color ${c}"></button>`).join('')}<button class="reset mini-btn" style="min-height:36px">Reset color</button></div>`;
+ const move=delta=>{const value=accountLayout(),ids=accounts.map(a=>a.id);[ids[i],ids[i+delta]]=[ids[i+delta],ids[i]];value.order=ids;saveAccountLayout(value);};row.querySelector('.up').onclick=()=>move(-1);row.querySelector('.down').onclick=()=>move(1);
+ row.querySelector('.account-drag').ondragstart=e=>{e.dataTransfer.setData('text/plain',a.id);e.dataTransfer.effectAllowed='move';};row.ondragover=e=>e.preventDefault();row.ondrop=e=>{e.preventDefault();const from=e.dataTransfer.getData('text/plain'),value=accountLayout(),ids=accounts.map(a=>a.id);if(!ids.includes(from)||from===a.id)return;ids.splice(ids.indexOf(from),1);ids.splice(ids.indexOf(a.id),0,from);value.order=ids;saveAccountLayout(value);};
+ row.querySelectorAll('[data-color]').forEach(b=>b.onclick=()=>{const value=accountLayout();value.colors={...value.colors,[a.id]:b.dataset.color};saveAccountLayout(value);});row.querySelector('.reset').onclick=()=>{const value=accountLayout();if(value.colors)delete value.colors[a.id];saveAccountLayout(value);};box.append(row);});
+}
+$('foreignToggle').onclick=()=>{foreignExpanded=!foreignExpanded;renderHome();};
 function watchChoice(){try{return JSON.parse(localStorage.getItem('moneyWatchlist:'+state.user?.id)||'null');}catch(_){return null;}}
 function renderWatchlist(){
   const cat=$('watchCategory'),cur=$('watchCurrency');if(!cat)return;const choice=watchChoice();
@@ -1515,7 +3054,7 @@ async function exportBackup() {
     const tables=['money_accounts','money_goals','money_goal_items','money_transactions','money_subscriptions'];
     const values=await Promise.all(tables.map(readFullTable));
     if(state.user?.id!==owner)throw new Error('Signed-in account changed. Try again.');
-    const backup={format:'money-tracker-backup',version:1,local_watchlist:watchChoice(),local_goal_order:goalOrderIds(),local_templates:readTemplates(),exported_at:new Date().toISOString(),notes:'Manual records. Amounts keep their original currencies. No exchange conversion. Export only, not an import tool.',tables:Object.fromEntries(tables.map((t,i)=>[t,values[i]]))};
+    const backup={format:'money-tracker-backup',version:1,local_account_layout:accountLayout(),local_watchlist:watchChoice(),local_goal_order:goalOrderIds(),local_templates:readTemplates(),exported_at:new Date().toISOString(),notes:'Manual records. Amounts keep their original currencies. No exchange conversion. Export only, not an import tool.',tables:Object.fromEntries(tables.map((t,i)=>[t,values[i]]))};
     const blob=new Blob([JSON.stringify(backup,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob);
     const a=document.createElement('a');a.href=url;a.download='money-backup-'+today()+'.json';document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);
     status.textContent='Backup download started: '+values.map((v,i)=>v.length+' '+tables[i].replace('money_','')).join(', ')+'. Check your Downloads or share/save menu.';
@@ -1568,4 +3107,4 @@ $('addGoalBtn').onclick = () => openGoalSheet();
 init();
 </script>
 </body>
-      </html>
+</html>
