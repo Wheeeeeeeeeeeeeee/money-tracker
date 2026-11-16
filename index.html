@@ -443,7 +443,7 @@ $('loginBtn').onclick = async () => {
   if (error) $('loginErr').textContent = error.message;
 };
 $('password').addEventListener('keydown', e => { if (e.key === 'Enter') $('loginBtn').click(); });
-$('signOutBtn').onclick = async () => { await sb.auth.signOut(); };
+$('signOutBtn').onclick = async () => { cancelPendingDeletes(); await sb.auth.signOut(); };
 
 /* ---------- theme + tutorial ---------- */
 function applyTheme(t) {
@@ -535,7 +535,7 @@ function openSubscription(sub = null) {
     const result=sub?await sb.from('money_subscriptions').update(row).eq('id',sub.id):await sb.from('money_subscriptions').insert(row);
     if(result.error){bg.querySelector('#subErr').textContent=result.error.message;return;} bg.remove(); await loadAll(); toast('Subscription reminder saved');
   };
-  if(sub) bg.querySelector('#subDelete').onclick=async()=>{const btn=bg.querySelector('#subDelete');if(btn.dataset.confirmed!=='yes'){btn.dataset.confirmed='yes';btn.textContent='Tap again to delete reminder';return;}const {error}=await sb.from('money_subscriptions').delete().eq('id',sub.id);if(error){bg.querySelector('#subErr').textContent=error.message;return;}bg.remove();await loadAll();};
+  if(sub) bg.querySelector('#subDelete').onclick=async()=>{const btn=bg.querySelector('#subDelete');if(btn.dataset.confirmed!=='yes'){btn.dataset.confirmed='yes';btn.textContent='Tap again to delete reminder';return;}bg.remove();queueDelete('sub:'+sub.id,'Reminder: '+sub.name,async()=>sb.from('money_subscriptions').delete().eq('id',sub.id));};
 }
 function renderHome() {
   const usdAccts = state.accounts.filter(a => acctCur(a) === 'USD');
@@ -738,9 +738,7 @@ function renderGoals() {
     const editGoal = () => openGoalSheet(g);
     const deleteGoal = async () => {
       if (!confirm('Delete this goal? Money saved toward it goes back to your accounts.')) return;
-      const { error } = await sb.from('money_goals').delete().eq('id', g.id);
-      if (error) return toast(error.message);
-      toast('Goal deleted'); loadAll();
+      queueDelete('goal:'+g.id, 'Goal: '+g.name, async()=>sb.from('money_goals').delete().eq('id',g.id));
     };
     const add = d.querySelector('.g-add');
     if (add) add.onclick = addMoney;
@@ -840,9 +838,7 @@ function txRow(t) {
   d.querySelector('.t1').textContent = t.note || (isTransfer ? 'Transfer' : t.kind === 'saving' ? 'Saved to goal' : t.category || 'Entry');
   d.querySelector('.del').onclick = async () => {
     const ids = t.paired ? t.pair_ids : [t.id];
-    const { error } = await sb.from('money_transactions').delete().in('id', ids);
-    if (error) return toast(error.message);
-    toast('Deleted'); loadAll();
+    queueDelete('tx:'+ids.join(','), t.note || 'Entry', async()=>sb.from('money_transactions').delete().in('id',ids));
   };
   return d;
 }
@@ -896,7 +892,7 @@ function openEntrySheet(kind = 'spending', goalId = null) {
     <div class="field"><label id="fAcctLabel">Account</label><select id="fAcct">${state.accounts.map(a => `<option value="${a.id}">${esc(a.name)} (${acctCur(a)})</option>`).join('')}</select></div>
     <div class="field hidden" id="goalField"><label>Goal</label><select id="fGoal">${state.goals.map(g => `<option value="${g.id}">${esc(g.name)}</option>`).join('')}</select></div>
     <div class="field" id="catField"><label id="catLabel">Category</label><div class="chips" id="catChips"></div><input id="fSource" class="hidden" style="margin-top:8px" placeholder="Or type a source - job, grades, a project..."></div>
-    <div class="field" id="roundupField"><label style="display:flex;align-items:center;gap:10px"><input id="roundupOn" type="checkbox" style="width:20px;height:20px"> Split the cents to a goal (round down)</label><select id="roundupGoal" aria-label="Round-up goal">${state.goals.map(g=>`<option value="${g.id}">${esc(g.name)}</option>`).join('')}</select><p class="acct-note" id="roundupPreview">Optional. Splits the entered total between spending and a goal. No extra money added. USD only.</p></div>
+    <div class="field" id="roundupField"><label style="display:flex;align-items:center;gap:10px"><input id="roundupOn" type="checkbox" style="width:20px;height:20px"> Split the cents to a goal (round down)</label><select id="roundupGoal" aria-label="Cents split goal">${state.goals.map(g=>`<option value="${g.id}">${esc(g.name)}</option>`).join('')}</select><p class="acct-note" id="roundupPreview">Optional. Splits the entered total between spending and a goal. No extra money added. USD only.</p></div>
     <div class="field hidden" id="paydayField"><label>Optional payday split into goals (%)</label><p class="acct-note" style="margin-bottom:10px">Leave blank to keep all income in the account. Goal splits are recorded with the income together, not as spending. Dollars only.</p>${state.goals.map(g=>`<div style="display:flex;align-items:center;gap:10px;margin:8px 0"><span style="flex:1;font-size:14px">${esc(g.name)}</span><input class="paydayPercent" data-goal="${g.id}" aria-label="Percent to ${esc(g.name)}" type="number" min="0" max="100" step="0.01" placeholder="0%" style="width:85px"></div>`).join('')}<div id="paydayPreview" class="acct-note"></div></div>
     <div class="field hidden" id="destField">
       <label>Move to (add as many as you like - split it up)</label>
@@ -1131,9 +1127,7 @@ function openAccountSheet(a = null) {
   };
   if (a) bg.querySelector('#aDel').onclick = async () => {
     if (!confirm('Delete this account and all its entries?')) return;
-    const { error } = await sb.from('money_accounts').delete().eq('id', a.id);
-    if (error) return toast(error.message);
-    bg.remove(); toast('Account deleted'); loadAll();
+    bg.remove(); queueDelete('account:'+a.id, 'Account: '+a.name, async()=>sb.from('money_accounts').delete().eq('id',a.id));
   };
 }
 function openGoalSheet(g = null) {
@@ -1283,6 +1277,31 @@ const firstEmoji = s => {
 };
 function esc(s) { return String(s).replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c])); }
 function linkify(s) { return esc(s).replace(/(https?:\/\/[^\s<]+|[a-z0-9-]+\.[a-z]{2,}(\/[^\s<]*)?)/gi, m => { const u = /^https?:\/\//i.test(m) ? m : 'https://' + m; return `<a href="${u}" target="_blank" rel="noopener">${m}</a>`; }); }
+/* Deletes wait 15 seconds. Undo cancels the write, preserving IDs and related rows. */
+const pendingDeletes = new Map();
+function cancelPendingDeletes() {
+  for(const p of pendingDeletes.values()){ clearTimeout(p.timer);p.el.remove(); }
+  pendingDeletes.clear();
+}
+function queueDelete(key,label,remove) {
+  if(pendingDeletes.has(key)) return toast('Already waiting to delete. Use Undo below.');
+  const owner=state.user?.id;
+  const el=document.createElement('div');el.className='pending-delete';el.setAttribute('role','status');
+  el.style.cssText='position:relative;background:var(--card);border:1px solid var(--accent);border-radius:14px;padding:12px;display:flex;align-items:center;gap:10px;font-size:13px;box-shadow:0 6px 24px #0005';
+  const labelEl=document.createElement('span');labelEl.style.flex='1';labelEl.textContent=label+' - deletes in 15 seconds. Leave this page to cancel.';
+  const undo=document.createElement('button');undo.type='button';undo.textContent='Undo';undo.style.cssText='background:var(--accent);color:#07130d;padding:12px 18px;border:0;border-radius:10px;font-weight:700;min-height:44px';
+  el.append(labelEl,undo);
+  let tray=$('deleteTray');if(!tray){tray=document.createElement('div');tray.id='deleteTray';tray.style.cssText='position:fixed;left:12px;right:12px;bottom:90px;z-index:1000;display:grid;gap:8px;max-width:540px;margin:auto;max-height:50vh;overflow:auto';document.body.append(tray);}tray.append(el);
+  undo.onclick=()=>{const p=pendingDeletes.get(key);if(!p)return;clearTimeout(p.timer);pendingDeletes.delete(key);el.remove();toast('Deletion cancelled');};
+  const timer=setTimeout(async()=>{
+    pendingDeletes.delete(key);undo.disabled=true;labelEl.textContent='Deleting '+label+'...';
+    if(state.user?.id!==owner){el.remove();return;}
+    try{const {error}=await remove();el.remove();if(error)return toast(error.message);toast('Deleted');await loadAll();}
+    catch(e){el.remove();toast('Could not delete. Check your connection and try again.');}
+  },15000);
+  pendingDeletes.set(key,{timer,el});
+}
+window.addEventListener('pagehide',cancelPendingDeletes);
 function toast(msg) {
   const t = document.createElement('div');
   t.className = 'toast'; t.textContent = msg;
