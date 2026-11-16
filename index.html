@@ -351,6 +351,9 @@
   </div>
 
   <div id="tab-activity" class="hidden">
+    <div class="section-head"><h2>Spending by category</h2></div>
+    <div class="row2" style="margin-bottom:12px"><div class="field"><label for="spendMonth">Month</label><input type="month" id="spendMonth"></div><div class="field"><label for="spendCurrency">Currency</label><select id="spendCurrency"></select></div></div>
+    <div id="spendingChart" style="margin-bottom:24px"></div>
     <div class="section-head"><h2>All activity</h2></div>
     <div class="chips" id="filterChips" style="margin-bottom:12px">
       <button data-f="all" class="sel">All</button>
@@ -751,7 +754,24 @@ function renderIncome() {
   $('incomeTx').innerHTML = earn.length ? '' : '<div class="empty">Nothing here yet.</div>';
   earn.forEach(t => $('incomeTx').appendChild(txRow(t)));
 }
+function renderSpendingChart() {
+  const currencies = [...new Set(state.accounts.map(a => acctCur(a)))].sort();
+  const select = $('spendCurrency');
+  const previous = select.value || 'USD';
+  select.innerHTML = currencies.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('');
+  select.value = currencies.includes(previous) ? previous : (currencies[0] || 'USD');
+  if (!$('spendMonth').value) $('spendMonth').value = today().slice(0, 7);
+  const month = $('spendMonth').value, currency = select.value;
+  const groups = {};
+  state.txs.filter(t => t.kind === 'spending' && t.occurred_on.startsWith(month) && acctCur(state.accounts.find(a => a.id === t.account_id)) === currency).forEach(t => {
+    const c = t.category || 'Other'; groups[c] = (groups[c] || 0) + Number(t.amount);
+  });
+  const rows = Object.entries(groups).sort((a,b) => b[1] - a[1]);
+  const total = rows.reduce((sum, row) => sum + row[1], 0);
+  $('spendingChart').innerHTML = total ? `<div class="total-note" style="margin-bottom:12px">${moneyC(total,currency)} spent in ${esc(month)}. Currencies are kept separate.</div>` + rows.map(([name,amount]) => `<div style="background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px;margin-bottom:8px"><div style="display:flex;justify-content:space-between;gap:12px;font-size:14px"><span>${esc(name)}</span><b>${moneyC(amount,currency)} · ${Math.round(amount/total*100)}%</b></div><div style="height:9px;background:var(--card2);border-radius:9px;margin-top:9px;overflow:hidden"><div style="height:100%;width:${amount/total*100}%;background:var(--accent);border-radius:9px"></div></div></div>`).join('') : '<div class="empty">No spending logged for this month and currency. Your income and transfers are not counted as spending.</div>';
+}
 function renderActivity() {
+  renderSpendingChart();
   const list = (state.filter === 'all' ? displayTxs() : displayTxs().filter(t => t.kind === state.filter));
   $('allTx').innerHTML = list.length ? '' : '<div class="empty">No entries here yet.</div>';
   list.forEach(t => $('allTx').appendChild(txRow(t)));
@@ -1192,6 +1212,8 @@ function toast(msg) {
 
 $('fab').onclick = () => openEntrySheet('spending');
 $('addAcctBtn').onclick = () => openAccountSheet();
+$('spendMonth').onchange = renderSpendingChart;
+$('spendCurrency').onchange = renderSpendingChart;
 $('addGoalBtn').onclick = () => openGoalSheet();
 
 init();
