@@ -640,7 +640,7 @@ function openEntrySheet(kind = 'spending', goalId = null) {
   function updDestTotal() {
     let sum = 0;
     bg.querySelectorAll('#destRows .dest-row input').forEach(i => { const v = parseFloat(i.value); if (v > 0) sum += v; });
-    bg.querySelector('#destTotal').textContent = sum > 0 ? `Total moving: ${money(sum)}` : '';
+    bg.querySelector('#destTotal').textContent = sum > 0 ? `Total moving: ${moneyC(sum, selCur())}` : '';
   }
   bg.querySelector('#destAdd').onclick = addDestRow;
   const selCur = () => acctCur(state.accounts.find(a => a.id === bg.querySelector('#fAcct').value));
