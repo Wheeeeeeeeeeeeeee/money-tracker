@@ -154,7 +154,7 @@
   <div class="logo">💰</div>
   <h1>Money</h1>
   <p class="sub">Your accounts, spending and savings goals in one place.</p>
-  <input id="email" type="email" placeholder="Email" autocomplete="email">
+  <input id="email" type="text" placeholder="Username or email" autocomplete="username">
   <input id="password" type="password" placeholder="Password" autocomplete="current-password">
   <button class="btn btn-primary" id="loginBtn">Sign in</button>
   <div class="err" id="loginErr"></div>
@@ -239,7 +239,17 @@ async function showApp() {
 $('loginBtn').onclick = async () => {
   $('loginErr').textContent = '';
   $('loginBtn').textContent = 'Signing in…';
-  const { error } = await sb.auth.signInWithPassword({ email: $('email').value.trim(), password: $('password').value });
+  const idv = $('email').value.trim(), pwv = $('password').value;
+  let error = null;
+  if (idv.includes('@')) {
+    ({ error } = await sb.auth.signInWithPassword({ email: idv, password: pwv }));
+  } else {
+    try {
+      const r = await fetch(window.__SUPABASE_URL__ + '/functions/v1/username-login', { method: 'POST', headers: { 'content-type': 'application/json', 'apikey': window.__SUPABASE_KEY__ }, body: JSON.stringify({ username: idv, password: pwv }) });
+      if (!r.ok) error = new Error('Invalid login credentials');
+      else { const s = await r.json(); ({ error } = await sb.auth.setSession({ access_token: s.access_token, refresh_token: s.refresh_token })); }
+    } catch (e) { error = e; }
+  }
   $('loginBtn').textContent = 'Sign in';
   if (error) $('loginErr').textContent = error.message;
 };
