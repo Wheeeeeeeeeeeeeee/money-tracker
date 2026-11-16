@@ -381,6 +381,7 @@ const sb = supabase.createClient(window.__SUPABASE_URL__, window.__SUPABASE_KEY_
 
 let state = { accounts: [], goals: [], items: [], txs: [], filter: 'all', user: null };
 let goalCatFilter = [];
+const GOAL_CATEGORY_PRESETS = ['Tech', 'Amazon', 'Apple', 'Figures', 'Family'];
 const goalCats = g => (g.categories || []);
 
 const money = n => (n < 0 ? '-$' : '$') + Math.abs(n).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
@@ -1106,7 +1107,7 @@ function openGoalSheet(g = null) {
   const normCat = v => v.trim().replace(/\s+/g, ' ');
   function renderCatChips() {
     const box = bg.querySelector('#gCats');
-    const known = [...new Set([...state.goals.flatMap(x => goalCats(x)), ...selCats])].sort((a, b) => a.localeCompare(b));
+    const known = [...new Set([...GOAL_CATEGORY_PRESETS, ...state.goals.flatMap(x => goalCats(x)), ...selCats])].sort((a, b) => a.localeCompare(b));
     box.innerHTML = known.length ? '' : '<span style="color:var(--dim); font-size:13px">No categories yet - type one below.</span>';
     for (const c of known) {
       const b = document.createElement('button');
@@ -1121,7 +1122,7 @@ function openGoalSheet(g = null) {
     const inp = bg.querySelector('#gCatNew');
     const v = normCat(inp.value);
     if (!v) return;
-    const existing = [...selCats, ...state.goals.flatMap(x => goalCats(x))].find(c => c.toLowerCase() === v.toLowerCase());
+    const existing = [...GOAL_CATEGORY_PRESETS, ...selCats, ...state.goals.flatMap(x => goalCats(x))].find(c => c.toLowerCase() === v.toLowerCase());
     selCats.add(existing || v);
     inp.value = '';
     renderCatChips();
