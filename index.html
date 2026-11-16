@@ -328,6 +328,7 @@
       <div class="amount" id="grandTotal">$0.00</div>
       <div class="sub" id="grandSub"></div>
     </div>
+    <details style="margin:18px 0;background:var(--card);padding:16px;border:1px solid var(--line);border-radius:16px"><summary style="cursor:pointer;font-weight:700;min-height:32px">Estimated USD view</summary><label style="display:flex;align-items:center;gap:10px;margin:12px 0"><input type="checkbox" id="fxToggle" style="width:22px;height:22px"> Include other currencies in an estimate</label><div class="total-note">Reference rates only, not what a bank or exchange will pay. Fees and spreads are not included. Recorded currencies, balances, goal targets and affordability stay unchanged.</div><div id="fxResult" style="margin-top:12px"></div></details>
     <div class="section-head"><h2>By account</h2></div>
     <div id="totalAccts"></div>
     <div class="section-head"><h2>What your total could cover</h2></div>
@@ -500,7 +501,7 @@ const acctMin = a => (a && a.minimum_balance != null) ? Number(a.minimum_balance
 const acctUsable = a => acctBalance(a.id) - (acctMin(a) || 0);
 
 /* ---------- render ---------- */
-function renderAll() { renderSubscriptions(); renderHome(); renderTotal(); renderGoals(); renderIncome(); renderActivity(); }
+function renderAll() { renderSubscriptions(); renderHome(); renderTotal(); renderGoals(); renderIncome(); renderActivity(); renderFx(); }
 function renderSubscriptions() {
   const sums = {};
   for (const sub of state.subscriptions) {
@@ -1319,6 +1320,39 @@ const firstEmoji = s => {
 };
 function esc(s) { return String(s).replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c])); }
 function linkify(s) { return esc(s).replace(/(https?:\/\/[^\s<]+|[a-z0-9-]+\.[a-z]{2,}(\/[^\s<]*)?)/gi, m => { const u = /^https?:\/\//i.test(m) ? m : 'https://' + m; return `<a href="${u}" target="_blank" rel="noopener">${m}</a>`; }); }
+const fx={enabled:false,loading:false,cache:null,error:''};
+try{fx.cache=JSON.parse(localStorage.getItem('moneyFxRatesV2')||'null');if(!Array.isArray(fx.cache?.rates)||!Number.isFinite(fx.cache?.fetchedAt))fx.cache=null;}catch(_){}
+async function loadFx() {
+  if(fx.loading)return;
+  if(fx.cache&&Date.now()-fx.cache.fetchedAt<12*3600000){renderFx();return;}
+  fx.loading=true;fx.error='';renderFx();
+  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),15000);
+  try{
+    const response=await fetch('https://api.frankfurter.dev/v2/rates?base=usd',{signal:controller.signal});
+    if(!response.ok)throw new Error('Rate service unavailable');
+    const rates=await response.json();if(!Array.isArray(rates))throw new Error('Unexpected rate response');
+    const valid=rates.filter(r=>r.base==='USD'&&/^[A-Z]{3}$/.test(r.quote)&&/^\d{4}-\d{2}-\d{2}$/.test(r.date)&&Number(r.rate)>0&&Number.isFinite(Number(r.rate)));
+    if(!valid.length)throw new Error('No usable rates returned');
+    fx.cache={fetchedAt:Date.now(),rates:valid};try{localStorage.setItem('moneyFxRatesV2',JSON.stringify(fx.cache));}catch(_){}
+  }catch(e){fx.error=fx.cache?'Could not refresh. Showing cached rates with their dates.':'Rates unavailable. Your recorded balances are unchanged.';}
+  finally{clearTimeout(timer);fx.loading=false;renderFx();}
+}
+function renderFx() {
+  const box=$('fxResult');if(!box)return;
+  if(!fx.enabled){box.textContent='Off by default. Turn on to see an estimate.';return;}
+  if(!fx.cache){box.textContent=fx.loading?'Loading reference rates...':fx.error;return;}
+  const groups={};for(const a of state.accounts)if(acctCur(a)!=='USD')groups[acctCur(a)]=(groups[acctCur(a)]||0)+acctUsable(a);
+  let estimate=state.accounts.filter(a=>acctCur(a)==='USD').reduce((n,a)=>n+acctUsable(a),0)+state.goals.reduce((n,g)=>n+goalSaved(g.id),0),missing=[];
+  const rows=Object.entries(groups).map(([currency,amount])=>{
+    const rate=fx.cache.rates.find(r=>r.quote===currency);
+    if(!rate){missing.push(currency);return `<p>${esc(currency)}: no rate available, excluded.</p>`;}
+    const value=amount/Number(rate.rate);estimate+=value;
+    const age=(Date.now()-new Date(rate.date+'T00:00:00Z').getTime())/86400000;
+    return `<div style="padding:10px 0;border-bottom:1px solid var(--line);font-size:13px"><b>${esc(moneyC(amount,currency))} ≈ ${money(value)} USD</b><br><span style="color:var(--dim)">1 ${esc(currency)} = ${(1/Number(rate.rate)).toPrecision(6)} USD · ${esc(rate.date)}${age>7?' · Older than 7 days':''}</span></div>`;
+  });
+  box.innerHTML=`<div style="font-size:24px;font-weight:800">≈ ${money(estimate)} USD</div><p class="total-note">${missing.length?'Partial estimate. Excludes '+esc(missing.join(', '))+'.':'Estimated spending money plus goal savings across all currencies.'} Minimum balances excluded. Goal savings counted once.</p>${rows.join('')}<p class="total-note" style="margin-top:10px">Source: <a href="https://frankfurter.dev/" style="color:var(--accent)" target="_blank" rel="noopener">Frankfurter blended reference rates</a>. Rate dates shown above. Fetched ${esc(new Date(fx.cache.fetchedAt).toLocaleString())}. ${esc(fx.error)}</p>`;
+}
+$('fxToggle').onchange=()=>{fx.enabled=$('fxToggle').checked;if(fx.enabled)loadFx();renderFx();};
 /* Fetch every page, not only the recent rows displayed by the app. */
 async function readFullTable(table) {
   const rows=[];const pageSize=500;
