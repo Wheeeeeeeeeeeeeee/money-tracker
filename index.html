@@ -268,6 +268,11 @@
   }
   .confetti{font-size:26px; text-align:center; padding:6px}
   .loading{color:var(--dim); text-align:center; padding:40px}
+.g-extra{margin-top:12px;background:var(--card2);border:1px solid var(--line);border-radius:12px;padding:12px}
+.g-extra .g-x-t{color:var(--dim);font-size:12px;margin-bottom:8px}
+.g-extra .g-x-row{display:flex;justify-content:space-between;gap:14px;font-size:13px;padding:5px 0;font-variant-numeric:tabular-nums}
+.g-extra .g-x-row span:last-child{text-align:right}
+.g-extra .g-x-note{color:var(--amber);font-size:11.5px;line-height:1.5;margin-top:8px}
 </style>
 </head>
 <body>
@@ -700,10 +705,7 @@ function renderGoals() {
     const storeHost = h => { try { return new URL(h).hostname.replace(/^www\./, ''); } catch (e) { return h; } };
     const buyLabel = g.buy_from || (g.link ? storeHost(g.link) : null);
     const buyHtml = (g.link || g.buy_from) ? `<div class="g-buy"><div class="g-buy-t">Where to buy</div>${g.link ? `<a class="g-buy-btn" href="${esc(g.link)}" target="_blank" rel="noopener">${esc(buyLabel)} <span style="opacity:.7">↗</span></a>` : `<div class="g-buy-store">${esc(buyLabel)}</div>`}</div>` : '';
-    const extras = [];
-    if (g.shipping != null) extras.push(['Shipping', Number(g.shipping)]);
-    if (g.fees != null) extras.push(['Extra fees', Number(g.fees)]);
-    const extrasHtml = extras.length ? `<div class="g-extra"><div class="g-x-t">Shipping + extra fees</div>${extras.map(([k, v]) => `<div class="g-x-row"><span>${k}</span><span>${money(v)}</span></div>`).join('')}<div class="g-x-note">Not included in the goal total or progress bars.</div></div>` : '';
+    const extrasHtml = costPlanHtml(g.target,g.shipping,g.fees,goalItems(g.id).some(i=>i.price==null));
     d.innerHTML = `
       <div class="g-top">
         <div class="g-emoji">${g.emoji || '🎯'}</div>
@@ -1183,7 +1185,8 @@ function openGoalSheet(g = null) {
     <div class="field"><label>Or type your own emoji</label><input id="gCustom" placeholder="Any emoji - overrides the pick above" value="${g && !isPreset ? esc(g.emoji) : ''}"></div>
     <div class="field"><label>Target amount (optional)</label><div class="amt-input"><span>$</span><input id="gTarget" type="number" inputmode="decimal" min="0" step="0.01" placeholder="0.00" value="${g && g.target != null ? Number(g.target) : ''}"></div><div class="hint" id="gTargetHint"></div></div>
     <div class="field"><label>Items (optional) - if it's more than one thing, list them and the goal adds up all their prices</label><div id="gItems"></div><button type="button" class="mini-btn" id="gItemAdd">+ Add an item</button></div>
-    <div class="field"><label>Shipping + extra fees (optional) - tracked separately, never counted in the goal total or bars</label><div class="amt-input" style="margin-bottom:8px"><span>$</span><input id="gShipping" type="number" inputmode="decimal" min="0" step="0.01" placeholder="Shipping, e.g. 9.99" value="${g && g.shipping != null ? Number(g.shipping) : ''}"></div><div class="amt-input"><span>$</span><input id="gFees" type="number" inputmode="decimal" min="0" step="0.01" placeholder="Extra fees, e.g. tariff surcharge" value="${g && g.fees != null ? Number(g.fees) : ''}"></div></div>
+    <div class="field"><label>Shipping + extra fees (optional) - tracked separately, never counted in the goal total or bars</label><div class="amt-input" style="margin-bottom:8px"><span>$</span><input id="gShipping" type="number" inputmode="decimal" min="0" step="0.01" placeholder="Shipping unknown - leave blank" aria-label="Shipping (blank means unknown)" value="${g && g.shipping != null ? Number(g.shipping) : ''}"></div><div class="amt-input"><span>$</span><input id="gFees" type="number" inputmode="decimal" min="0" step="0.01" placeholder="Fees unknown - leave blank" aria-label="Fees (blank means unknown)" value="${g && g.fees != null ? Number(g.fees) : ''}"></div></div>
+    <div id="gCostPreview"></div>
     <div class="field"><label>Due date (optional)</label><input id="gDue" type="date" value="${g && g.due_date ? g.due_date : ''}"></div>
     <div class="field"><label>Where to buy (optional)</label><input id="gBuyFrom" placeholder="Mondo Shop, Apple, Amazon…" value="${g && g.buy_from ? esc(g.buy_from) : ''}"></div>
     <div class="field"><label>Availability (optional)</label><select id="gStatus"><option value="">No status</option><option value="available">Available</option><option value="preorder">Pre-order</option><option value="comingsoon">Coming soon</option><option value="soldout">Sold out</option></select></div>
@@ -1220,7 +1223,13 @@ function openGoalSheet(g = null) {
       targetInput.disabled = false;
       targetHint.textContent = '';
     }
+    previewCost();
   }
+  function previewCost(){
+    const value=id=>{const v=bg.querySelector(id).value.trim();return v===''?null:Number(v);};
+    bg.querySelector('#gCostPreview').innerHTML=costPlanHtml(value('#gTarget'),value('#gShipping'),value('#gFees'),readItemRows().some(i=>i.raw===''));
+  }
+  ['#gTarget','#gShipping','#gFees'].forEach(id=>bg.querySelector(id).addEventListener('input',previewCost));
   function itemRow(it) {
     const r = document.createElement('div');
     r.className = 'g-item-row';
@@ -1320,6 +1329,13 @@ const firstEmoji = s => {
 };
 function esc(s) { return String(s).replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c])); }
 function linkify(s) { return esc(s).replace(/(https?:\/\/[^\s<]+|[a-z0-9-]+\.[a-z]{2,}(\/[^\s<]*)?)/gi, m => { const u = /^https?:\/\//i.test(m) ? m : 'https://' + m; return `<a href="${u}" target="_blank" rel="noopener">${m}</a>`; }); }
+function costPlanHtml(price,shipping,fees,unknownItems=false) {
+  const parts=[['Item price',price],['Shipping',shipping],['Extra fees / tax',fees]];
+  const valid=v=>v!=null&&Number.isFinite(Number(v))&&Number(v)>=0;
+  const known=parts.filter(([,v])=>valid(v)).reduce((n,[,v])=>n+Math.round(Number(v)*100),0)/100;
+  const complete=parts.every(([,v])=>valid(v))&&!unknownItems;
+  return `<div class="g-extra" style="margin-bottom:16px"><div class="g-x-t">Purchase cost planner · USD</div>${parts.map(([name,v])=>`<div class="g-x-row"><span>${name}${name==='Item price'&&unknownItems?' (partial)':''}</span><span>${valid(v)?money(Number(v)):(name==='Item price'?'Unknown':'Calculated at checkout')}</span></div>`).join('')}<div class="g-x-row" style="border-top:1px solid var(--line);margin-top:7px;padding-top:8px;font-weight:700"><span>${complete?'Estimated purchase total':'Known subtotal only'}</span><span>${money(known)}</span></div>${complete?'':'<div class="g-x-note">Full total unknown until every item, shipping and fees are known. Blank is unknown, not $0.</div>'}<div class="g-x-note">Planning only. Verify at checkout. Shipping and fees stay separate from the item-only goal target and progress bars.</div></div>`;
+}
 const fx={enabled:false,loading:false,cache:null,error:''};
 try{fx.cache=JSON.parse(localStorage.getItem('moneyFxRatesV2')||'null');if(!Array.isArray(fx.cache?.rates)||!Number.isFinite(fx.cache?.fetchedAt))fx.cache=null;}catch(_){}
 async function loadFx() {
