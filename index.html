@@ -896,6 +896,7 @@ function openEntrySheet(kind = 'spending', goalId = null) {
     <div class="field"><label id="fAcctLabel">Account</label><select id="fAcct">${state.accounts.map(a => `<option value="${a.id}">${esc(a.name)} (${acctCur(a)})</option>`).join('')}</select></div>
     <div class="field hidden" id="goalField"><label>Goal</label><select id="fGoal">${state.goals.map(g => `<option value="${g.id}">${esc(g.name)}</option>`).join('')}</select></div>
     <div class="field" id="catField"><label id="catLabel">Category</label><div class="chips" id="catChips"></div><input id="fSource" class="hidden" style="margin-top:8px" placeholder="Or type a source - job, grades, a project..."></div>
+    <div class="field hidden" id="paydayField"><label>Optional payday split into goals (%)</label><p class="acct-note" style="margin-bottom:10px">Leave blank to keep all income in the account. Goal splits are recorded with the income together, not as spending. Dollars only.</p>${state.goals.map(g=>`<div style="display:flex;align-items:center;gap:10px;margin:8px 0"><span style="flex:1;font-size:14px">${esc(g.name)}</span><input class="paydayPercent" data-goal="${g.id}" aria-label="Percent to ${esc(g.name)}" type="number" min="0" max="100" step="0.01" placeholder="0%" style="width:85px"></div>`).join('')}<div id="paydayPreview" class="acct-note"></div></div>
     <div class="field hidden" id="destField">
       <label>Move to (add as many as you like - split it up)</label>
       <div id="destRows"></div>
@@ -920,6 +921,7 @@ function openEntrySheet(kind = 'spending', goalId = null) {
     bg.querySelector('#fAcctLabel').textContent = isTransfer ? 'From account' : 'Account';
     bg.querySelector('#catLabel').textContent = k === 'earning' ? 'Source' : 'Category';
     bg.querySelector('#fSource').classList.toggle('hidden', k !== 'earning');
+    bg.querySelector('#paydayField').classList.toggle('hidden', k !== 'earning');
     bg.querySelector('h3').textContent = isTransfer ? 'Move money' : 'Add entry';
     bg.querySelector('#fSave').textContent = isTransfer ? 'Move it' : 'Add';
     if (isTransfer && !bg.querySelector('#destRows').children.length) addDestRow();
@@ -961,6 +963,20 @@ function openEntrySheet(kind = 'spending', goalId = null) {
     bg.querySelectorAll('.cur-sym').forEach(el => { el.textContent = s; });
   }
   bg.querySelector('#fAcct').addEventListener('change', updCurSym);
+  function paydayParts() {
+    const cents = Math.round((Number(bg.querySelector('#fAmt').value) || 0) * 100);
+    const inputs = [...bg.querySelectorAll('.paydayPercent')];
+    const percent = inputs.reduce((n,i)=>n+(Number(i.value)||0),0);
+    const parts = inputs.map(i=>({goal:i.dataset.goal,percent:Number(i.value)||0,cents:Math.floor(cents*(Number(i.value)||0)/100)}));
+    return {cents,percent,parts,saved:parts.reduce((n,p)=>n+p.cents,0)};
+  }
+  function previewPayday() {
+    const p=paydayParts();
+    bg.querySelector('#paydayPreview').textContent = p.percent>100 ? 'Total percentages must not exceed 100%.' : `To goals: ${money(p.saved/100)} · Stays in account: ${money((p.cents-p.saved)/100)}. Splits round down to cents; any remainder stays in the account.`;
+  }
+  bg.querySelectorAll('.paydayPercent').forEach(i=>i.oninput=previewPayday);
+  bg.querySelector('#fAmt').addEventListener('input',previewPayday);
+  previewPayday();
   bg.querySelectorAll('#kindSeg button').forEach(b => b.onclick = () => setKind(b.dataset.k));
   setKind(kind); updCurSym();
   if (goalId) bg.querySelector('#fGoal').value = goalId;
@@ -1010,8 +1026,17 @@ function openEntrySheet(kind = 'spending', goalId = null) {
       occurred_on: on,
       goal_id: curKind === 'saving' ? (bg.querySelector('#fGoal').value || null) : null,
     };
-    const { error } = await sb.from('money_transactions').insert(row);
-    if (error) { bg.querySelector('#fErr').textContent = error.message; return; }
+    let rowsToAdd = [row];
+    if (curKind === 'earning') {
+      const p = paydayParts();
+      if ([...bg.querySelectorAll('.paydayPercent')].some(i=>!Number.isFinite(Number(i.value))||Number(i.value)<0) || p.percent>100) {bg.querySelector('#fErr').textContent='Use percentages from 0 to 100, totaling no more than 100%.';return;}
+      if(p.percent>0 && selCur()!=='USD'){bg.querySelector('#fErr').textContent='Payday goal splits use USD accounts only.';return;}
+      row.amount=p.cents/100;
+      rowsToAdd.push(...p.parts.filter(p=>p.cents>0).map(p=>({account_id:row.account_id,amount:p.cents/100,kind:'saving',category:'Payday split',goal_id:p.goal,note:note||'Payday split',occurred_on:on})));
+    }
+    bg.querySelector('#fSave').disabled=true;
+    const { error } = await sb.from('money_transactions').insert(rowsToAdd);
+    if (error) { bg.querySelector('#fSave').disabled=false; bg.querySelector('#fErr').textContent = error.message; return; }
     bg.remove();
     toast(curKind === 'earning' ? 'Money in 💪' : curKind === 'saving' ? 'Saved toward your goal 🎯' : 'Logged');
     loadAll();
