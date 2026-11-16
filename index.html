@@ -487,12 +487,13 @@ const goalSaved = id => state.txs.filter(t => t.goal_id === id && t.kind === 'sa
 const goalItems = id => state.items.filter(i => i.goal_id === id);
 const STATUS_LABELS = { available: 'Available', preorder: 'Pre-order', comingsoon: 'Coming soon', soldout: 'Sold out' };
 const acctMin = a => (a && a.minimum_balance != null) ? Number(a.minimum_balance) : null;
+const acctUsable = a => acctBalance(a.id) - (acctMin(a) || 0);
 
 /* ---------- render ---------- */
 function renderAll() { renderHome(); renderTotal(); renderGoals(); renderIncome(); renderActivity(); }
 function renderHome() {
   const usdAccts = state.accounts.filter(a => acctCur(a) === 'USD');
-  const totalAvail = usdAccts.reduce((s, a) => s + acctBalance(a.id), 0);
+  const totalAvail = usdAccts.reduce((s, a) => s + acctUsable(a), 0);
   const totalGoals = state.goals.reduce((s, g) => s + goalSaved(g.id), 0);
   $('totalBal').textContent = money(totalAvail + totalGoals);
   const others = otherCurSums();
@@ -533,7 +534,7 @@ function renderHome() {
 function renderTotal() {
   const usdAccts = state.accounts.filter(a => acctCur(a) === 'USD');
   const otherAccts = state.accounts.filter(a => acctCur(a) !== 'USD');
-  const totalAvail = usdAccts.reduce((s, a) => s + acctBalance(a.id), 0);
+  const totalAvail = usdAccts.reduce((s, a) => s + acctUsable(a), 0);
   const totalGoals = state.goals.reduce((s, g) => s + goalSaved(g.id), 0);
   const total = totalAvail + totalGoals;
   $('grandTotal').textContent = money(total);
@@ -543,9 +544,10 @@ function renderTotal() {
   ac.innerHTML = state.accounts.length ? '' : '<div class="empty">No accounts yet.</div>';
   for (const a of usdAccts) {
     const bal = acctBalance(a.id);
+    const amin = acctMin(a);
     const d = document.createElement('div');
     d.className = 'src-row';
-    d.innerHTML = `<div class="s-ic">${a.icon || '🏦'}</div><div class="s-name"></div><div class="s-amt" style="color:${bal < 0 ? 'var(--red)' : 'var(--text)'}">${money(bal)}</div>`;
+    d.innerHTML = `<div class="s-ic">${a.icon || '🏦'}</div><div class="s-name"></div><div style="text-align:right"><div class="s-amt" style="color:${acctUsable(a) < 0 ? 'var(--red)' : 'var(--text)'}">${money(acctUsable(a))}</div>${amin ? `<div class="s-count">Spending · All ${money(bal)}</div>` : ''}</div>`;
     d.querySelector('.s-name').textContent = a.name;
     ac.appendChild(d);
   }
@@ -597,7 +599,7 @@ function renderTotal() {
 function renderGoals() {
   const el = $('goalsList');
   el.innerHTML = state.goals.length ? '' : '<div class="empty">No goals yet. Make one for something you\'re saving toward - like a new phone or a projector.</div>';
-  const usdAvail = state.accounts.filter(a => acctCur(a) === 'USD').reduce((x, a) => x + acctBalance(a.id), 0);
+  const usdAvail = state.accounts.filter(a => acctCur(a) === 'USD').reduce((x, a) => x + acctUsable(a), 0);
   const usdTotal = usdAvail + state.goals.reduce((x, gg) => x + goalSaved(gg.id), 0);
   const allCats = [...new Set(state.goals.flatMap(g => goalCats(g)))].sort((a, b) => a.localeCompare(b));
   goalCatFilter = goalCatFilter.filter(c => allCats.includes(c));
