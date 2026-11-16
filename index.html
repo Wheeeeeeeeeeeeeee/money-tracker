@@ -318,6 +318,7 @@
       <div class="sub" id="totalSub"></div>
       <div class="sub" id="totalSub2"></div>
     </div>
+    <details style="margin:16px 0;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px"><summary style="cursor:pointer;min-height:32px;font-weight:700">Spending watchlist</summary><p class="total-note">Pin one category's current-month total here. This browser only. No budget or limit assumed.</p><div class="row2"><div class="field"><label for="watchCategory">Category</label><select id="watchCategory"><option value="">Choose a category</option></select></div><div class="field"><label for="watchCurrency">Currency</label><select id="watchCurrency"></select></div></div><div id="watchResult" role="status"></div></details>
     <div id="nextGoal" style="margin:16px 0"></div>
     <div class="section-head"><h2>Accounts</h2><button id="addAcctBtn">+ Add</button></div>
     <div class="acct-row" id="acctRow"></div>
@@ -514,7 +515,7 @@ const acctMin = a => (a && a.minimum_balance != null) ? Number(a.minimum_balance
 const acctUsable = a => acctBalance(a.id) - (acctMin(a) || 0);
 
 /* ---------- render ---------- */
-function renderAll() { renderWeeklySummary(); renderSubscriptions(); renderHome(); renderTotal(); renderGoals(); renderIncome(); renderActivity(); renderFx(); renderTemplates(); renderBalanceHistory(); renderGoalOrder(); }
+function renderAll() { renderWeeklySummary(); renderSubscriptions(); renderHome(); renderTotal(); renderGoals(); renderIncome(); renderActivity(); renderFx(); renderTemplates(); renderBalanceHistory(); renderGoalOrder(); renderWatchlist(); }
 let summaryWeekOffset = 0;
 function renderWeeklySummary() {
   const start=new Date(savingsWeek(today())+'T00:00:00Z');start.setUTCDate(start.getUTCDate()+summaryWeekOffset*7);
@@ -1394,6 +1395,17 @@ const firstEmoji = s => {
 };
 function esc(s) { return String(s).replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c])); }
 function linkify(s) { return esc(s).replace(/(https?:\/\/[^\s<]+|[a-z0-9-]+\.[a-z]{2,}(\/[^\s<]*)?)/gi, m => { const u = /^https?:\/\//i.test(m) ? m : 'https://' + m; return `<a href="${u}" target="_blank" rel="noopener">${m}</a>`; }); }
+function watchChoice(){try{return JSON.parse(localStorage.getItem('moneyWatchlist:'+state.user?.id)||'null');}catch(_){return null;}}
+function renderWatchlist(){
+  const cat=$('watchCategory'),cur=$('watchCurrency');if(!cat)return;const choice=watchChoice();
+  const categories=[...new Set([...(CATS.spending||[]),...state.txs.filter(t=>t.kind==='spending'&&!isAdjustment(t)).map(t=>t.category||'Other')])].sort();
+  cat.innerHTML='<option value="">Choose a category</option>'+categories.map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join('');cat.value=choice?.category||'';
+  const currencies=[...new Set(state.accounts.map(acctCur))];cur.innerHTML=currencies.map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join('');cur.value=currencies.includes(choice?.currency)?choice.currency:(currencies.includes('USD')?'USD':currencies[0]||'');
+  if(!cat.value){$('watchResult').innerHTML='<p class="total-note">No category pinned. Choose one above.</p>';return;}
+  const month=today().slice(0,7),rows=state.txs.filter(t=>t.kind==='spending'&&!isAdjustment(t)&&(t.category||'Other')===cat.value&&t.occurred_on.startsWith(month)&&acctCur(state.accounts.find(a=>a.id===t.account_id))===cur.value),total=rows.reduce((n,t)=>n+Number(t.amount),0);
+  $('watchResult').innerHTML=`<div style="font-size:24px;font-weight:800">${moneyC(total,cur.value)}</div><div class="total-note">${esc(cat.value)} · ${esc(month)} · ${rows.length} recorded ${rows.length===1?'entry':'entries'}</div>`;
+}
+for(const id of ['watchCategory','watchCurrency'])$(id).onchange=()=>{try{localStorage.setItem('moneyWatchlist:'+state.user.id,JSON.stringify({category:$('watchCategory').value,currency:$('watchCurrency').value}));renderWatchlist();}catch(_){toast('Could not save watchlist in this browser.');}};
 function goalOrderIds(){try{const ids=JSON.parse(localStorage.getItem('moneyGoalOrder:'+state.user?.id)||'[]');return Array.isArray(ids)?ids:[];}catch(_){return [];}}
 function orderedGoals(){const ids=goalOrderIds();return [...state.goals].sort((a,b)=>{const x=ids.indexOf(a.id),y=ids.indexOf(b.id);return(x<0?9999:x)-(y<0?9999:y);});}
 function saveGoalOrder(ids){try{localStorage.setItem('moneyGoalOrder:'+state.user.id,JSON.stringify(ids));renderGoals();renderGoalOrder();}catch(_){toast('Could not save order in this browser.');}}
@@ -1503,7 +1515,7 @@ async function exportBackup() {
     const tables=['money_accounts','money_goals','money_goal_items','money_transactions','money_subscriptions'];
     const values=await Promise.all(tables.map(readFullTable));
     if(state.user?.id!==owner)throw new Error('Signed-in account changed. Try again.');
-    const backup={format:'money-tracker-backup',version:1,local_goal_order:goalOrderIds(),local_templates:readTemplates(),exported_at:new Date().toISOString(),notes:'Manual records. Amounts keep their original currencies. No exchange conversion. Export only, not an import tool.',tables:Object.fromEntries(tables.map((t,i)=>[t,values[i]]))};
+    const backup={format:'money-tracker-backup',version:1,local_watchlist:watchChoice(),local_goal_order:goalOrderIds(),local_templates:readTemplates(),exported_at:new Date().toISOString(),notes:'Manual records. Amounts keep their original currencies. No exchange conversion. Export only, not an import tool.',tables:Object.fromEntries(tables.map((t,i)=>[t,values[i]]))};
     const blob=new Blob([JSON.stringify(backup,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob);
     const a=document.createElement('a');a.href=url;a.download='money-backup-'+today()+'.json';document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);
     status.textContent='Backup download started: '+values.map((v,i)=>v.length+' '+tables[i].replace('money_','')).join(', ')+'. Check your Downloads or share/save menu.';
