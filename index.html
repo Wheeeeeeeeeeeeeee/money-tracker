@@ -780,7 +780,7 @@ function renderGoals() {
       </div>
       ${hasTarget ? `<div class="bar"><i style="width:${pct}%"></i></div>${[25,50,75,100].filter(n=>pct>=n).length?`<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">${[25,50,75,100].filter(n=>pct>=n).map(n=>`<span class="cat-chip">${n===100?'🏆':'⭐'} ${n}% saved</span>`).join('')}</div>`:''}` : ''}
       ${hasTarget ? `<div class="bar afford"><i style="width:${affPct}%"></i></div><div class="g-aff${canAfford ? ' yes' : ''}">${canAfford ? '✓ Can afford now' : 'Can afford: ' + affPct.toFixed(0) + '% of the price'}</div>` : ''}
-      <div>${statusHtml}${dueHtml}</div>
+      <div>${statusHtml}${dueHtml}</div><button class="goal-importance mini-btn" style="min-height:44px;margin-top:8px" aria-label="Set importance for ${esc(g.name)}">Importance: ${g.importance==null?'not set':Number(g.importance)+'/10'} · Set</button>
       ${goalCats(g).length ? `<div class="cat-row">${goalCats(g).map(c => `<span class="cat-chip">${esc(c)}</span>`).join('')}</div>` : ''}
       <div class="g-foot"><span>${!hasTarget ? 'No target yet' : done ? 'Funded!' : pct.toFixed(0) + '% there'}<span class="g-caret">▾</span></span><span><button class="g-edit">Edit</button><button class="g-del">Delete</button></span></div>
       <div class="g-detail">
@@ -801,6 +801,7 @@ function renderGoals() {
         ${hist.length ? '<div class="g-hist"><div class="g-h-t">Recent deposits</div>' + hist.map(t => `<div class="g-h-row"><span class="d">${fmtDate(t.occurred_on)}</span><span>${esc(t.note || 'Deposit')}</span><span class="a">+${money(Number(t.amount))}</span></div>`).join('') + '</div>' : '<div class="g-hist"><div class="g-h-t">No deposits yet - tap + Add money to start this goal.</div></div>'}
       </div>`;
     d.querySelector('.g-name').textContent = g.name;
+    d.querySelector('.goal-importance').onclick=()=>openGoalImportance(g);
     const addMoney = () => openEntrySheet('saving', g.id);
     const editGoal = () => openGoalSheet(g);
     const deleteGoal = async () => {
@@ -1298,6 +1299,7 @@ function openGoalSheet(g = null) {
     <div class="field"><label>Items (optional) - if it's more than one thing, list them and the goal adds up all their prices</label><div id="gItems"></div><button type="button" class="mini-btn" id="gItemAdd">+ Add an item</button></div>
     <div class="field"><label>Shipping + extra fees (optional) - tracked separately, never counted in the goal total or bars</label><div class="amt-input" style="margin-bottom:8px"><span>$</span><input id="gShipping" type="number" inputmode="decimal" min="0" step="0.01" placeholder="Shipping unknown - leave blank" aria-label="Shipping (blank means unknown)" value="${g && g.shipping != null ? Number(g.shipping) : ''}"></div><div class="amt-input"><span>$</span><input id="gFees" type="number" inputmode="decimal" min="0" step="0.01" placeholder="Fees unknown - leave blank" aria-label="Fees (blank means unknown)" value="${g && g.fees != null ? Number(g.fees) : ''}"></div></div>
     <div id="gCostPreview"></div>
+    <div class="field"><label for="gImportance">Importance (optional, 10 is most important)</label><select id="gImportance"><option value="">Not set</option>${Array.from({length:10},(_,i)=>i+1).map(n=>`<option value="${n}" ${Number(g?.importance)===n?'selected':''}>${n}${n===10?' - most important':''}</option>`).join('')}</select></div>
     <div class="field"><label>Due date (optional)</label><input id="gDue" type="date" value="${g && g.due_date ? g.due_date : ''}"></div>
     <div class="field"><label>Where to buy (optional)</label><input id="gBuyFrom" placeholder="Mondo Shop, Apple, Amazon…" value="${g && g.buy_from ? esc(g.buy_from) : ''}"></div>
     <div class="field"><label>Availability (optional)</label><select id="gStatus"><option value="">No status</option><option value="available">Available</option><option value="preorder">Pre-order</option><option value="comingsoon">Coming soon</option><option value="soldout">Sold out</option></select></div>
@@ -1418,8 +1420,10 @@ function openGoalSheet(g = null) {
     const em = firstEmoji(bg.querySelector('#gCustom').value) || emoji;
     let error, newGoal = null;
     const categories = [...selCats];
-    if (g) ({ error } = await sb.from('money_goals').update({ name, emoji: em, target, due_date, link, note, buy_from, status, shipping, fees, categories }).eq('id', g.id));
-    else ({ data: newGoal, error } = await sb.from('money_goals').insert({ name, emoji: em, target, due_date, link, note, buy_from, status, shipping, fees, categories }).select().single());
+    const importance=bg.querySelector('#gImportance').value?Number(bg.querySelector('#gImportance').value):null;
+    if(importance!==null&&(!Number.isInteger(importance)||importance<1||importance>10)){bg.querySelector('#gErr').textContent='Importance must be 1-10, or not set.';return;}
+    if (g) ({ error } = await sb.from('money_goals').update({ name, emoji: em, target, due_date, link, note, buy_from, status, shipping, fees, categories, importance }).eq('id', g.id));
+    else ({ data: newGoal, error } = await sb.from('money_goals').insert({ name, emoji: em, target, due_date, link, note, buy_from, status, shipping, fees, categories, importance }).select().single());
     if (error) { bg.querySelector('#gErr').textContent = error.message; return; }
     const gid = g ? g.id : newGoal.id;
     if (g) {
@@ -1480,9 +1484,25 @@ function renderGoalOrder(){
     const move=delta=>{const ids=goals.map(g=>g.id);[ids[index],ids[index+delta]]=[ids[index+delta],ids[index]];saveGoalOrder(ids);};row.querySelector('.up').onclick=()=>move(-1);row.querySelector('.down').onclick=()=>move(1);
     row.querySelector('.drag-handle').ondragstart=e=>{e.dataTransfer.setData('text/plain',g.id);e.dataTransfer.effectAllowed='move';};row.ondragover=e=>e.preventDefault();row.ondrop=e=>{e.preventDefault();const from=e.dataTransfer.getData('text/plain'),ids=goals.map(g=>g.id);if(!ids.includes(from)||from===g.id)return;ids.splice(ids.indexOf(from),1);ids.splice(ids.indexOf(g.id),0,from);saveGoalOrder(ids);};box.append(row);
   });
-  const next=goals[0],home=$('nextGoal');home.innerHTML=next?`<div style="background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px"><div class="total-note">Next up · your goal order</div><b>${esc(next.name)}</b><div class="total-note">${money(goalSaved(next.id))} saved${Number(next.target)>0?' of '+money(Number(next.target)):''}</div><button class="mini-btn" id="nextGoalOpen" style="min-height:44px">View goal</button></div>`:'';
-  if(next)$('nextGoalOpen').onclick=()=>{document.querySelector('nav.tabs button[data-tab="goals"]').click();};
+  renderNextGoal();
 }
+const NEXT_SORTS={manual:'Your goal order',importance:'Importance: 10 first',price:'Item price: low to high',remaining:'Left to save: low to high',due:'Due date: soonest first',name:'Name: A-Z'};
+function nextSort(){try{const v=localStorage.getItem('moneyNextSort:'+state.user?.id)||'manual';return Object.hasOwn(NEXT_SORTS,v)?v:'manual';}catch(_){return 'manual';}}
+function nextGoals(sort=nextSort()){
+ const goals=orderedGoals(),price=g=>Number(g.target)>0?Number(g.target):Infinity,remaining=g=>Number(g.target)>0?Math.max(0,Number(g.target)-goalSaved(g.id)):Infinity;
+ return goals.sort((a,b)=>sort==='importance'?(Number(b.importance)||0)-(Number(a.importance)||0):sort==='price'?price(a)-price(b):sort==='remaining'?remaining(a)-remaining(b):sort==='due'?(a.due_date||'9999').localeCompare(b.due_date||'9999'):sort==='name'?a.name.localeCompare(b.name):0);
+}
+function renderNextGoal(){
+ const sort=nextSort(),goals=nextGoals(sort),next=goals[0],home=$('nextGoal');
+ home.innerHTML=`<div style="background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px"><b>Next up</b><label for="nextSort" class="total-note" style="display:block;margin:12px 0 5px">Sort goals by</label><select id="nextSort" style="width:100%;min-height:44px">${Object.entries(NEXT_SORTS).map(([value,label])=>`<option value="${value}" ${sort===value?'selected':''}>${label}</option>`).join('')}</select><p class="total-note" style="margin:8px 0 14px">Sort choice saves in this browser. It does not change your manual goal order. Unset importance, price or dates sort last.</p>${next?`<b>${esc(next.name)}</b><div class="total-note">${money(goalSaved(next.id))} saved${Number(next.target)>0?' of '+money(Number(next.target)):''} · Importance ${next.importance==null?'not set':Number(next.importance)+'/10'}</div><div style="display:flex;gap:12px;flex-wrap:wrap"><button class="mini-btn" id="nextGoalOpen">View goal</button><button class="mini-btn" id="nextImportance">Set importance</button></div><details style="margin-top:8px"><summary>View sorted goals (${goals.length})</summary>${goals.map((g,i)=>`<div style="padding:10px 0;border-top:1px solid var(--line);font-size:13px">${i+1}. ${esc(g.name)}<div class="total-note">Importance ${g.importance==null?'not set':Number(g.importance)+'/10'}${Number(g.target)>0?' · Item '+money(Number(g.target))+' · Left '+money(Math.max(0,Number(g.target)-goalSaved(g.id))):' · No item target'}${g.due_date?' · Due '+esc(fmtDate(g.due_date)):''}</div></div>`).join('')}</details>`:'<p class="total-note">No goals yet.</p>'}</div>`;
+ $('nextSort').onchange=()=>{try{localStorage.setItem('moneyNextSort:'+state.user.id,$('nextSort').value);renderNextGoal();}catch(_){toast('Could not save sort choice.');}};
+ if(next){$('nextImportance').onclick=()=>openGoalImportance(next);$('nextGoalOpen').onclick=()=>{goalCatFilter=[];renderGoals();document.querySelector('nav.tabs button[data-tab="goals"]').click();const index=orderedGoals().findIndex(g=>g.id===next.id);const card=$('goalsList').children[index];card?.classList.add('open');card?.scrollIntoView({block:'start',behavior:'smooth'});};}
+}
+function openGoalImportance(g){
+ const bg=openSheet(`<h3>Goal importance</h3><p>${esc(g.name)}</p><label for="importanceValue" class="total-note">1-10. 10 is most important. Leave unset if you have not decided.</label><select id="importanceValue" style="width:100%;margin:12px 0"><option value="">Not set</option>${Array.from({length:10},(_,i)=>i+1).map(n=>`<option value="${n}" ${Number(g.importance)===n?'selected':''}>${n}${n===10?' - most important':''}</option>`).join('')}</select><p class="total-note">Importance saves with this goal across devices. No balances or goal amounts change.</p><div id="importanceError" class="err"></div><button class="btn" id="saveImportance" style="margin-top:14px">Save importance</button>`);
+ bg.querySelector('#saveImportance').onclick=async()=>{const raw=bg.querySelector('#importanceValue').value,importance=raw===''?null:Number(raw);if(importance!==null&&(!Number.isInteger(importance)||importance<1||importance>10))return;const button=bg.querySelector('#saveImportance');button.disabled=true;try{const {error}=await sb.from('money_goals').update({importance}).eq('id',g.id);if(error)throw error;bg.remove();toast('Importance saved');await loadAll();}catch(e){bg.querySelector('#importanceError').textContent=e.message||'Could not save importance.';button.disabled=false;}};
+}
+
 function balanceHistoryPoints(days) {
   const usd=state.accounts.filter(a=>acctCur(a)==='USD'),todayKey=today();
   if(!usd.length)return [];
@@ -1580,7 +1600,7 @@ async function exportBackup() {
     const tables=['money_accounts','money_goals','money_goal_items','money_transactions','money_subscriptions'];
     const values=await Promise.all(tables.map(readFullTable));
     if(state.user?.id!==owner)throw new Error('Signed-in account changed. Try again.');
-    const backup={format:'money-tracker-backup',version:1,local_account_layout:accountLayout(),local_watchlist:watchChoice(),local_goal_order:goalOrderIds(),local_templates:readTemplates(),exported_at:new Date().toISOString(),notes:'Manual records. Amounts keep their original currencies. No exchange conversion. Export only, not an import tool.',tables:Object.fromEntries(tables.map((t,i)=>[t,values[i]]))};
+    const backup={format:'money-tracker-backup',version:1,local_account_layout:accountLayout(),local_watchlist:watchChoice(),local_goal_order:goalOrderIds(),local_next_sort:nextSort(),local_templates:readTemplates(),exported_at:new Date().toISOString(),notes:'Manual records. Amounts keep their original currencies. No exchange conversion. Export only, not an import tool.',tables:Object.fromEntries(tables.map((t,i)=>[t,values[i]]))};
     const blob=new Blob([JSON.stringify(backup,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob);
     const a=document.createElement('a');a.href=url;a.download='money-backup-'+today()+'.json';document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);
     status.textContent='Backup download started: '+values.map((v,i)=>v.length+' '+tables[i].replace('money_','')).join(', ')+'. Check your Downloads or share/save menu.';
