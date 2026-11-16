@@ -896,6 +896,7 @@ function openEntrySheet(kind = 'spending', goalId = null) {
     <div class="field"><label id="fAcctLabel">Account</label><select id="fAcct">${state.accounts.map(a => `<option value="${a.id}">${esc(a.name)} (${acctCur(a)})</option>`).join('')}</select></div>
     <div class="field hidden" id="goalField"><label>Goal</label><select id="fGoal">${state.goals.map(g => `<option value="${g.id}">${esc(g.name)}</option>`).join('')}</select></div>
     <div class="field" id="catField"><label id="catLabel">Category</label><div class="chips" id="catChips"></div><input id="fSource" class="hidden" style="margin-top:8px" placeholder="Or type a source - job, grades, a project..."></div>
+    <div class="field" id="roundupField"><label style="display:flex;align-items:center;gap:10px"><input id="roundupOn" type="checkbox" style="width:20px;height:20px"> Save the round-up to a goal</label><select id="roundupGoal" aria-label="Round-up goal">${state.goals.map(g=>`<option value="${g.id}">${esc(g.name)}</option>`).join('')}</select><p class="acct-note" id="roundupPreview">Optional. Adds a separate savings deposit, not extra spending. USD only.</p></div>
     <div class="field hidden" id="paydayField"><label>Optional payday split into goals (%)</label><p class="acct-note" style="margin-bottom:10px">Leave blank to keep all income in the account. Goal splits are recorded with the income together, not as spending. Dollars only.</p>${state.goals.map(g=>`<div style="display:flex;align-items:center;gap:10px;margin:8px 0"><span style="flex:1;font-size:14px">${esc(g.name)}</span><input class="paydayPercent" data-goal="${g.id}" aria-label="Percent to ${esc(g.name)}" type="number" min="0" max="100" step="0.01" placeholder="0%" style="width:85px"></div>`).join('')}<div id="paydayPreview" class="acct-note"></div></div>
     <div class="field hidden" id="destField">
       <label>Move to (add as many as you like - split it up)</label>
@@ -922,6 +923,7 @@ function openEntrySheet(kind = 'spending', goalId = null) {
     bg.querySelector('#catLabel').textContent = k === 'earning' ? 'Source' : 'Category';
     bg.querySelector('#fSource').classList.toggle('hidden', k !== 'earning');
     bg.querySelector('#paydayField').classList.toggle('hidden', k !== 'earning');
+    bg.querySelector('#roundupField').classList.toggle('hidden', k !== 'spending' || !state.goals.length);
     bg.querySelector('h3').textContent = isTransfer ? 'Move money' : 'Add entry';
     bg.querySelector('#fSave').textContent = isTransfer ? 'Move it' : 'Add';
     if (isTransfer && !bg.querySelector('#destRows').children.length) addDestRow();
@@ -977,6 +979,10 @@ function openEntrySheet(kind = 'spending', goalId = null) {
   bg.querySelectorAll('.paydayPercent').forEach(i=>i.oninput=previewPayday);
   bg.querySelector('#fAmt').addEventListener('input',previewPayday);
   previewPayday();
+  function roundupCents() { const cents=Math.round((Number(bg.querySelector('#fAmt').value)||0)*100); return (100-cents%100)%100; }
+  function previewRoundup() {bg.querySelector('#roundupPreview').textContent=`Round-up: ${money(roundupCents()/100)} saved separately. Full-dollar purchases add $0.00. USD only.`;}
+  bg.querySelector('#fAmt').addEventListener('input',previewRoundup);
+  previewRoundup();
   bg.querySelectorAll('#kindSeg button').forEach(b => b.onclick = () => setKind(b.dataset.k));
   setKind(kind); updCurSym();
   if (goalId) bg.querySelector('#fGoal').value = goalId;
@@ -1033,6 +1039,12 @@ function openEntrySheet(kind = 'spending', goalId = null) {
       if(p.percent>0 && selCur()!=='USD'){bg.querySelector('#fErr').textContent='Payday goal splits use USD accounts only.';return;}
       row.amount=p.cents/100;
       rowsToAdd.push(...p.parts.filter(p=>p.cents>0).map(p=>({account_id:row.account_id,amount:p.cents/100,kind:'saving',category:'Payday split',goal_id:p.goal,note:note||'Payday split',occurred_on:on})));
+    }
+    if(curKind==='spending' && bg.querySelector('#roundupOn').checked){
+      if(selCur()!=='USD'){bg.querySelector('#fErr').textContent='Round-ups into goals require a USD account.';return;}
+      const goal=bg.querySelector('#roundupGoal').value, cents=roundupCents();
+      if(!goal){bg.querySelector('#fErr').textContent='Choose a goal for the round-up.';return;}
+      if(cents>0)rowsToAdd.push({account_id:row.account_id,amount:cents/100,kind:'saving',category:'Round-up',goal_id:goal,note:'Round-up',occurred_on:on});
     }
     bg.querySelector('#fSave').disabled=true;
     const { error } = await sb.from('money_transactions').insert(rowsToAdd);
