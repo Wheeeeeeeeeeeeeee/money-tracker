@@ -97,6 +97,14 @@
   .goal-card .g-foot{display:flex; justify-content:space-between; margin-top:8px; font-size:12.5px; color:var(--dim)}
   .goal-card .g-del{color:var(--dim)}
 
+  .total-note{color:var(--dim); font-size:13px; margin:-4px 2px 12px}
+  .src-row .s-ic{font-size:20px}
+  .src-row .s-mid{flex:1; min-width:0}
+  .src-row .s-mid .s-sub{color:var(--dim); font-size:12px; margin-top:1px}
+  .src-row .s-amt.blue{color:var(--blue)}
+  .pill{font-size:12.5px; font-weight:700; padding:6px 10px; border-radius:99px; white-space:nowrap}
+  .pill.yes{background:var(--accent-dim); color:var(--accent)}
+  .pill.no{color:var(--dim); border:1px solid var(--line)}
   .empty{color:var(--dim); text-align:center; padding:26px 10px; font-size:14.5px; border:1px dashed var(--line); border-radius:16px}
 
   /* ---------- bottom nav + FAB ---------- */
@@ -106,7 +114,7 @@
     background:rgba(14,19,25,.92); backdrop-filter:blur(12px);
     border-top:1px solid var(--line); padding:10px 8px calc(10px + env(safe-area-inset-bottom));
   }
-  nav.tabs button{color:var(--dim); font-size:11.5px; display:flex; flex-direction:column; align-items:center; gap:3px; padding:4px 14px}
+  nav.tabs button{color:var(--dim); font-size:11.5px; display:flex; flex-direction:column; align-items:center; gap:3px; padding:4px 8px}
   nav.tabs button .ic{font-size:20px}
   nav.tabs button.active{color:var(--accent)}
   #fab{
@@ -192,6 +200,19 @@
     <div class="tx-list" id="recentTx"></div>
   </div>
 
+  <div id="tab-total" class="hidden">
+    <div class="total-card">
+      <div class="label">Total money</div>
+      <div class="amount" id="grandTotal">$0.00</div>
+      <div class="sub" id="grandSub"></div>
+    </div>
+    <div class="section-head"><h2>By account</h2></div>
+    <div id="totalAccts"></div>
+    <div class="section-head"><h2>What your total could cover</h2></div>
+    <div class="total-note">Your total counts money saved in goals once. These are alternatives - affording one uses money the others would need.</div>
+    <div id="affordList"></div>
+  </div>
+
   <div id="tab-goals" class="hidden">
     <div class="section-head"><h2>Savings goals</h2><button id="addGoalBtn">+ New goal</button></div>
     <div id="goalsList"></div>
@@ -225,6 +246,7 @@
 
 <nav class="tabs hidden" id="tabs">
   <button data-tab="home" class="active"><span class="ic">🏠</span>Home</button>
+  <button data-tab="total"><span class="ic">💰</span>Total</button>
   <button data-tab="goals"><span class="ic">🎯</span>Goals</button>
   <button data-tab="income"><span class="ic">💵</span>Income</button>
   <button data-tab="activity"><span class="ic">🧾</span>Activity</button>
@@ -304,7 +326,7 @@ const acctBalance = id => {
 const goalSaved = id => state.txs.filter(t => t.goal_id === id && t.kind === 'saving').reduce((s, t) => s + Number(t.amount), 0);
 
 /* ---------- render ---------- */
-function renderAll() { renderHome(); renderGoals(); renderIncome(); renderActivity(); }
+function renderAll() { renderHome(); renderTotal(); renderGoals(); renderIncome(); renderActivity(); }
 function renderHome() {
   const totalAvail = state.accounts.reduce((s, a) => s + acctBalance(a.id), 0);
   const totalGoals = state.goals.reduce((s, g) => s + goalSaved(g.id), 0);
@@ -333,6 +355,53 @@ function renderHome() {
   const recent = displayTxs().slice(0, 5);
   $('recentTx').innerHTML = recent.length ? '' : '<div class="empty">Nothing logged yet. Tap + to add your first entry.</div>';
   recent.forEach(t => $('recentTx').appendChild(txRow(t)));
+}
+function renderTotal() {
+  const totalAvail = state.accounts.reduce((s, a) => s + acctBalance(a.id), 0);
+  const totalGoals = state.goals.reduce((s, g) => s + goalSaved(g.id), 0);
+  const total = totalAvail + totalGoals;
+  $('grandTotal').textContent = money(total);
+  $('grandSub').textContent = `${money(totalAvail)} in accounts · ${money(totalGoals)} saved in goals`;
+
+  const ac = $('totalAccts');
+  ac.innerHTML = state.accounts.length ? '' : '<div class="empty">No accounts yet.</div>';
+  for (const a of state.accounts) {
+    const bal = acctBalance(a.id);
+    const d = document.createElement('div');
+    d.className = 'src-row';
+    d.innerHTML = `<div class="s-ic">${a.icon || '🏦'}</div><div class="s-name"></div><div class="s-amt" style="color:${bal < 0 ? 'var(--red)' : 'var(--text)'}">${money(bal)}</div>`;
+    d.querySelector('.s-name').textContent = a.name;
+    ac.appendChild(d);
+  }
+  if (state.goals.length) {
+    const d = document.createElement('div');
+    d.className = 'src-row';
+    d.innerHTML = `<div class="s-ic">🎯</div><div class="s-name" style="color:var(--dim)">Saved in goals</div><div class="s-amt blue">${money(totalGoals)}</div>`;
+    ac.appendChild(d);
+  }
+
+  const af = $('affordList');
+  const rows = state.goals.map(g => ({ g, saved: goalSaved(g.id), target: Number(g.target) }));
+  af.innerHTML = rows.length ? '' : '<div class="empty">No savings goals yet. Add one on the Goals tab and it will show up here.</div>';
+  rows.sort((x, y) => {
+    const xa = x.target > 0 && total >= x.target, ya = y.target > 0 && total >= y.target;
+    if (xa !== ya) return xa ? -1 : 1;
+    return x.target - y.target;
+  });
+  for (const { g, saved, target } of rows) {
+    const can = target > 0 && total >= target;
+    const d = document.createElement('div');
+    d.className = 'src-row';
+    d.innerHTML = `
+      <div class="s-ic">${g.emoji || '🎯'}</div>
+      <div class="s-mid">
+        <div class="s-name" style="flex:none"></div>
+        <div class="s-sub">${money(target)}${saved > 0 ? ' · ' + money(saved) + ' already saved toward it' : ''}</div>
+      </div>
+      <div class="pill ${can ? 'yes' : 'no'}">${can ? '✓ Affordable' : money(Math.max(0, target - total)) + ' short'}</div>`;
+    d.querySelector('.s-name').textContent = g.name;
+    af.appendChild(d);
+  }
 }
 function renderGoals() {
   const el = $('goalsList');
@@ -443,7 +512,7 @@ function txRow(t) {
 /* ---------- tabs ---------- */
 document.querySelectorAll('nav.tabs button').forEach(b => b.onclick = () => {
   document.querySelectorAll('nav.tabs button').forEach(x => x.classList.toggle('active', x === b));
-  ['home', 'goals', 'income', 'activity'].forEach(t => $('tab-' + t).classList.toggle('hidden', t !== b.dataset.tab));
+  ['home', 'total', 'goals', 'income', 'activity'].forEach(t => $('tab-' + t).classList.toggle('hidden', t !== b.dataset.tab));
 });
 document.querySelectorAll('#filterChips button').forEach(b => b.onclick = () => {
   document.querySelectorAll('#filterChips button').forEach(x => x.classList.toggle('sel', x === b));
@@ -593,6 +662,7 @@ function openAccountSheet(a = null) {
     <h3>${a ? 'Edit account' : 'Add account'}</h3>
     <div class="field"><label>Name</label><input id="aName" placeholder="Bank of America, Cash App…" value="${a ? esc(a.name) : ''}"></div>
     <div class="field"><label>Icon</label><div class="chips" id="aIcons">${icons.map((i, x) => `<button data-i="${i}" class="${a && a.icon === i || (!a && x === 0) ? 'sel' : ''}">${i}</button>`).join('')}</div></div>
+    <div class="field"><label>Or type your own emoji</label><input id="aCustom" placeholder="Any emoji - overrides the pick above" value="${a && !icons.includes(a.icon) ? esc(a.icon) : ''}"></div>
     <div class="field"><label>${a ? 'Starting balance' : 'Current balance'}</label><div class="amt-input"><span>$</span><input id="aBal" type="number" inputmode="decimal" step="0.01" value="${a ? Number(a.starting_balance) : ''}" placeholder="0.00"></div></div>
     <button class="btn btn-primary" id="aSave">${a ? 'Save changes' : 'Add account'}</button>
     ${a ? '<button class="btn" id="aDel" style="color:var(--red); margin-top:6px">Delete account</button>' : ''}
@@ -600,15 +670,20 @@ function openAccountSheet(a = null) {
   let icon = a ? a.icon : icons[0];
   bg.querySelectorAll('#aIcons button').forEach(b => b.onclick = () => {
     icon = b.dataset.i;
+    bg.querySelector('#aCustom').value = '';
     bg.querySelectorAll('#aIcons button').forEach(x => x.classList.toggle('sel', x === b));
+  });
+  bg.querySelector('#aCustom').addEventListener('input', () => {
+    if (bg.querySelector('#aCustom').value.trim()) bg.querySelectorAll('#aIcons button').forEach(x => x.classList.remove('sel'));
   });
   bg.querySelector('#aSave').onclick = async () => {
     const name = bg.querySelector('#aName').value.trim();
     if (!name) { bg.querySelector('#aErr').textContent = 'Give it a name'; return; }
     const bal = parseFloat(bg.querySelector('#aBal').value) || 0;
+    const ic = firstEmoji(bg.querySelector('#aCustom').value) || icon;
     let error;
-    if (a) ({ error } = await sb.from('money_accounts').update({ name, icon, starting_balance: bal }).eq('id', a.id));
-    else ({ error } = await sb.from('money_accounts').insert({ name, icon, starting_balance: bal, sort_order: state.accounts.length }));
+    if (a) ({ error } = await sb.from('money_accounts').update({ name, icon: ic, starting_balance: bal }).eq('id', a.id));
+    else ({ error } = await sb.from('money_accounts').insert({ name, icon: ic, starting_balance: bal, sort_order: state.accounts.length }));
     if (error) { bg.querySelector('#aErr').textContent = error.message; return; }
     bg.remove(); toast(a ? 'Account updated' : 'Account added'); loadAll();
   };
@@ -625,24 +700,34 @@ function openGoalSheet() {
     <h3>New savings goal</h3>
     <div class="field"><label>What are you saving for?</label><input id="gName" placeholder="iPhone Duo, projector…"></div>
     <div class="field"><label>Emoji</label><div class="chips" id="gEmojis">${emojis.map((e, x) => `<button data-e="${e}" class="${x === 0 ? 'sel' : ''}">${e}</button>`).join('')}</div></div>
+    <div class="field"><label>Or type your own emoji</label><input id="gCustom" placeholder="Any emoji - overrides the pick above"></div>
     <div class="field"><label>Target amount</label><div class="amt-input"><span>$</span><input id="gTarget" type="number" inputmode="decimal" min="0" step="0.01" placeholder="0.00"></div></div>
     <button class="btn btn-primary" id="gSave">Create goal</button>
     <div class="err" id="gErr"></div>`);
   let emoji = emojis[0];
   bg.querySelectorAll('#gEmojis button').forEach(b => b.onclick = () => {
     emoji = b.dataset.e;
+    bg.querySelector('#gCustom').value = '';
     bg.querySelectorAll('#gEmojis button').forEach(x => x.classList.toggle('sel', x === b));
+  });
+  bg.querySelector('#gCustom').addEventListener('input', () => {
+    if (bg.querySelector('#gCustom').value.trim()) bg.querySelectorAll('#gEmojis button').forEach(x => x.classList.remove('sel'));
   });
   bg.querySelector('#gSave').onclick = async () => {
     const name = bg.querySelector('#gName').value.trim();
     const target = parseFloat(bg.querySelector('#gTarget').value);
     if (!name) { bg.querySelector('#gErr').textContent = 'Give it a name'; return; }
     if (!target || target <= 0) { bg.querySelector('#gErr').textContent = 'Set a target amount'; return; }
-    const { error } = await sb.from('money_goals').insert({ name, emoji, target });
+    const { error } = await sb.from('money_goals').insert({ name, emoji: firstEmoji(bg.querySelector('#gCustom').value) || emoji, target });
     if (error) { bg.querySelector('#gErr').textContent = error.message; return; }
     bg.remove(); toast('Goal created 🎯'); loadAll();
   };
 }
+const firstEmoji = s => {
+  s = String(s || '').trim();
+  if (!s) return '';
+  try { return [...new Intl.Segmenter('en', { granularity: 'grapheme' }).segment(s)][0].segment; } catch (e) { return Array.from(s)[0]; }
+};
 function esc(s) { return String(s).replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c])); }
 function toast(msg) {
   const t = document.createElement('div');
