@@ -1,0 +1,504 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0a0e13">
+<title>Money</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root{
+    --bg:#0a0e13; --card:#12181f; --card2:#18222c; --line:#232f3b;
+    --text:#eef4f9; --dim:#8fa1b3; --accent:#4ade80; --accent-dim:#16301f;
+    --red:#f87171; --red-dim:#331b1b; --blue:#60a5fa;
+  }
+  *{box-sizing:border-box; margin:0; padding:0; -webkit-tap-highlight-color:transparent}
+  html,body{height:100%}
+  body{
+    background:var(--bg); color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,sans-serif;
+    font-size:16px; line-height:1.4;
+  }
+  button{font:inherit; color:inherit; background:none; border:none; cursor:pointer}
+  input,select,textarea{font:inherit; color:var(--text); background:var(--card2); border:1px solid var(--line); border-radius:12px; padding:12px 14px; width:100%; outline:none}
+  input:focus,select:focus{border-color:var(--accent)}
+  input[type=date]{color-scheme:dark}
+  .hidden{display:none!important}
+
+  /* ---------- login ---------- */
+  #loginView{max-width:380px; margin:0 auto; padding:80px 24px; text-align:center}
+  #loginView .logo{font-size:44px; margin-bottom:8px}
+  #loginView h1{font-size:26px; font-weight:700; letter-spacing:.3px}
+  #loginView p.sub{color:var(--dim); margin:6px 0 28px}
+  #loginView input{margin-bottom:12px; text-align:left}
+  .btn{display:block; width:100%; padding:14px; border-radius:14px; font-weight:600; text-align:center}
+  .btn-primary{background:var(--accent); color:#06220f}
+  .btn-primary:active{filter:brightness(.9)}
+  .err{color:var(--red); font-size:14px; margin-top:12px; min-height:18px}
+
+  /* ---------- app shell ---------- */
+  #appView{max-width:560px; margin:0 auto; padding:0 16px 110px}
+  header.top{display:flex; justify-content:space-between; align-items:center; padding:18px 4px 6px}
+  header.top .wordmark{font-weight:800; font-size:19px; letter-spacing:.4px}
+  header.top .wordmark span{color:var(--accent)}
+  #signOutBtn{color:var(--dim); font-size:14px; padding:6px 8px}
+
+  .total-card{
+    background:linear-gradient(135deg,#123a24 0%, #0f2a3a 100%);
+    border:1px solid var(--line); border-radius:22px; padding:24px 22px; margin:14px 0 20px;
+  }
+  .total-card .label{color:#9fd8b4; font-size:13px; text-transform:uppercase; letter-spacing:1.2px}
+  .total-card .amount{font-size:42px; font-weight:800; margin-top:4px; font-variant-numeric:tabular-nums}
+  .total-card .sub{color:var(--dim); font-size:13px; margin-top:6px}
+
+  .section-head{display:flex; justify-content:space-between; align-items:center; margin:22px 2px 10px}
+  .section-head h2{font-size:16px; font-weight:700}
+  .section-head button{color:var(--accent); font-size:14px; font-weight:600}
+
+  .acct-row{display:flex; gap:12px; overflow-x:auto; padding:2px 2px 8px; scrollbar-width:none}
+  .acct-row::-webkit-scrollbar{display:none}
+  .acct-card{min-width:150px; background:var(--card); border:1px solid var(--line); border-radius:18px; padding:16px; flex-shrink:0}
+  .acct-card .icon{font-size:22px}
+  .acct-card .name{color:var(--dim); font-size:13px; margin-top:8px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  .acct-card .bal{font-size:20px; font-weight:700; margin-top:2px; font-variant-numeric:tabular-nums}
+  .acct-card .bal.neg{color:var(--red)}
+
+  .tx-list{display:flex; flex-direction:column; gap:8px}
+  .tx{display:flex; align-items:center; gap:12px; background:var(--card); border:1px solid var(--line); border-radius:16px; padding:12px 14px}
+  .tx .bubble{width:38px; height:38px; border-radius:12px; display:flex; align-items:center; justify-content:center; font-size:17px; flex-shrink:0}
+  .tx .bubble.earning{background:var(--accent-dim); color:var(--accent)}
+  .tx .bubble.spending{background:var(--red-dim); color:var(--red)}
+  .tx .bubble.saving{background:#14273a; color:var(--blue)}
+  .tx .mid{flex:1; min-width:0}
+  .tx .mid .t1{font-weight:600; font-size:15px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  .tx .mid .t2{color:var(--dim); font-size:12.5px; margin-top:1px}
+  .tx .amt{font-weight:700; font-variant-numeric:tabular-nums; white-space:nowrap}
+  .tx .amt.earning{color:var(--accent)}
+  .tx .amt.spending{color:var(--red)}
+  .tx .amt.saving{color:var(--blue)}
+  .tx .del{color:var(--dim); font-size:18px; padding:4px 2px 4px 8px}
+
+  .goal-card{background:var(--card); border:1px solid var(--line); border-radius:18px; padding:16px; margin-bottom:12px}
+  .goal-card .g-top{display:flex; align-items:center; gap:12px}
+  .goal-card .g-emoji{font-size:26px}
+  .goal-card .g-mid{flex:1; min-width:0}
+  .goal-card .g-name{font-weight:700}
+  .goal-card .g-nums{color:var(--dim); font-size:13px; margin-top:2px; font-variant-numeric:tabular-nums}
+  .goal-card .g-add{color:var(--accent); font-weight:700; font-size:14px; border:1px solid var(--accent-dim); background:var(--accent-dim); padding:8px 14px; border-radius:12px}
+  .goal-card .bar{height:8px; background:var(--card2); border-radius:99px; margin-top:12px; overflow:hidden}
+  .goal-card .bar i{display:block; height:100%; background:var(--accent); border-radius:99px; transition:width .4s}
+  .goal-card.done .bar i{background:linear-gradient(90deg,#fbbf24,#f59e0b)}
+  .goal-card .g-foot{display:flex; justify-content:space-between; margin-top:8px; font-size:12.5px; color:var(--dim)}
+  .goal-card .g-del{color:var(--dim)}
+
+  .empty{color:var(--dim); text-align:center; padding:26px 10px; font-size:14.5px; border:1px dashed var(--line); border-radius:16px}
+
+  /* ---------- bottom nav + FAB ---------- */
+  nav.tabs{
+    position:fixed; left:0; right:0; bottom:0; z-index:30;
+    display:flex; justify-content:space-around; align-items:center;
+    background:rgba(14,19,25,.92); backdrop-filter:blur(12px);
+    border-top:1px solid var(--line); padding:10px 8px calc(10px + env(safe-area-inset-bottom));
+  }
+  nav.tabs button{color:var(--dim); font-size:11.5px; display:flex; flex-direction:column; align-items:center; gap:3px; padding:4px 14px}
+  nav.tabs button .ic{font-size:20px}
+  nav.tabs button.active{color:var(--accent)}
+  #fab{
+    position:fixed; right:18px; bottom:calc(74px + env(safe-area-inset-bottom)); z-index:31;
+    width:58px; height:58px; border-radius:50%; background:var(--accent); color:#06220f;
+    font-size:30px; font-weight:700; box-shadow:0 8px 22px rgba(74,222,128,.35);
+    display:flex; align-items:center; justify-content:center; line-height:1;
+  }
+
+  /* ---------- sheet / modal ---------- */
+  .sheet-bg{position:fixed; inset:0; background:rgba(0,0,0,.6); z-index:40; display:flex; align-items:flex-end; justify-content:center}
+  .sheet{
+    background:var(--card); border:1px solid var(--line); border-radius:24px 24px 0 0;
+    width:100%; max-width:560px; max-height:88vh; overflow-y:auto;
+    padding:18px 18px calc(24px + env(safe-area-inset-bottom));
+  }
+  .sheet .grab{width:40px; height:4px; background:var(--line); border-radius:99px; margin:0 auto 14px}
+  .sheet h3{font-size:18px; margin-bottom:14px}
+  .seg{display:flex; background:var(--card2); border-radius:12px; padding:4px; margin-bottom:14px}
+  .seg button{flex:1; padding:9px; border-radius:9px; color:var(--dim); font-weight:600; font-size:14px}
+  .seg button.sel.earning{background:var(--accent-dim); color:var(--accent)}
+  .seg button.sel.spending{background:var(--red-dim); color:var(--red)}
+  .seg button.sel.saving{background:#14273a; color:var(--blue)}
+  .field{margin-bottom:12px}
+  .field label{display:block; color:var(--dim); font-size:12.5px; margin:0 2px 5px}
+  .chips{display:flex; flex-wrap:wrap; gap:8px}
+  .chips button{border:1px solid var(--line); background:var(--card2); color:var(--dim); border-radius:99px; padding:8px 13px; font-size:13.5px}
+  .chips button.sel{border-color:var(--accent); color:var(--accent); background:var(--accent-dim)}
+  .amt-input{display:flex; align-items:center; gap:6px; background:var(--card2); border:1px solid var(--line); border-radius:14px; padding:4px 14px}
+  .amt-input span{font-size:24px; color:var(--dim)}
+  .amt-input input{border:none; background:none; font-size:28px; font-weight:700; padding:8px 0}
+  .row2{display:flex; gap:10px}
+  .row2>.field{flex:1}
+  .sheet .btn{margin-top:8px}
+  .toast{
+    position:fixed; left:50%; transform:translateX(-50%); bottom:calc(96px + env(safe-area-inset-bottom));
+    background:#1c2b22; color:var(--accent); border:1px solid var(--accent-dim);
+    padding:10px 18px; border-radius:99px; font-size:14px; font-weight:600; z-index:60;
+  }
+  .confetti{font-size:26px; text-align:center; padding:6px}
+  .loading{color:var(--dim); text-align:center; padding:40px}
+</style>
+</head>
+<body>
+
+<div id="loginView" class="hidden">
+  <div class="logo">💰</div>
+  <h1>Money</h1>
+  <p class="sub">Your accounts, spending and savings goals in one place.</p>
+  <input id="email" type="email" placeholder="Email" autocomplete="email">
+  <input id="password" type="password" placeholder="Password" autocomplete="current-password">
+  <button class="btn btn-primary" id="loginBtn">Sign in</button>
+  <div class="err" id="loginErr"></div>
+</div>
+
+<div id="appView" class="hidden">
+  <header class="top">
+    <div class="wordmark">money<span>.</span></div>
+    <button id="signOutBtn">Sign out</button>
+  </header>
+
+  <div id="tab-home">
+    <div class="total-card">
+      <div class="label">Total balance</div>
+      <div class="amount" id="totalBal">$0.00</div>
+      <div class="sub" id="totalSub"></div>
+    </div>
+    <div class="section-head"><h2>Accounts</h2><button id="addAcctBtn">+ Add</button></div>
+    <div class="acct-row" id="acctRow"></div>
+    <div class="section-head"><h2>Recent activity</h2></div>
+    <div class="tx-list" id="recentTx"></div>
+  </div>
+
+  <div id="tab-goals" class="hidden">
+    <div class="section-head"><h2>Savings goals</h2><button id="addGoalBtn">+ New goal</button></div>
+    <div id="goalsList"></div>
+  </div>
+
+  <div id="tab-activity" class="hidden">
+    <div class="section-head"><h2>All activity</h2></div>
+    <div class="chips" id="filterChips" style="margin-bottom:12px">
+      <button data-f="all" class="sel">All</button>
+      <button data-f="earning">Earning</button>
+      <button data-f="spending">Spending</button>
+      <button data-f="saving">Saving</button>
+    </div>
+    <div class="tx-list" id="allTx"></div>
+  </div>
+</div>
+
+<button id="fab" class="hidden">+</button>
+
+<nav class="tabs hidden" id="tabs">
+  <button data-tab="home" class="active"><span class="ic">🏠</span>Home</button>
+  <button data-tab="goals"><span class="ic">🎯</span>Goals</button>
+  <button data-tab="activity"><span class="ic">🧾</span>Activity</button>
+</nav>
+
+<div id="sheetRoot"></div>
+
+<script src="config.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const sb = supabase.createClient(window.__SUPABASE_URL__, window.__SUPABASE_KEY__);
+
+let state = { accounts: [], goals: [], txs: [], filter: 'all', user: null };
+
+const money = n => (n < 0 ? '-$' : '$') + Math.abs(n).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+const today = () => new Date().toLocaleDateString('en-CA');
+const fmtDate = d => new Date(d + 'T12:00:00').toLocaleDateString('en-US', {month: 'short', day: 'numeric'});
+
+/* ---------- auth ---------- */
+async function init() {
+  const { data: { session } } = await sb.auth.getSession();
+  if (session) { state.user = session.user; showApp(); } else { showLogin(); }
+  sb.auth.onAuthStateChange((_e, s) => {
+    if (s) { state.user = s.user; showApp(); } else { showLogin(); }
+  });
+}
+function showLogin() {
+  $('loginView').classList.remove('hidden');
+  $('appView').classList.add('hidden');
+  $('tabs').classList.add('hidden'); $('fab').classList.add('hidden');
+}
+async function showApp() {
+  $('loginView').classList.add('hidden');
+  $('appView').classList.remove('hidden');
+  $('tabs').classList.remove('hidden'); $('fab').classList.remove('hidden');
+  await loadAll();
+}
+$('loginBtn').onclick = async () => {
+  $('loginErr').textContent = '';
+  $('loginBtn').textContent = 'Signing in…';
+  const { error } = await sb.auth.signInWithPassword({ email: $('email').value.trim(), password: $('password').value });
+  $('loginBtn').textContent = 'Sign in';
+  if (error) $('loginErr').textContent = error.message;
+};
+$('password').addEventListener('keydown', e => { if (e.key === 'Enter') $('loginBtn').click(); });
+$('signOutBtn').onclick = async () => { await sb.auth.signOut(); };
+
+/* ---------- data ---------- */
+async function loadAll() {
+  const [a, g, t] = await Promise.all([
+    sb.from('money_accounts').select('*').order('sort_order').order('created_at'),
+    sb.from('money_goals').select('*').order('created_at'),
+    sb.from('money_transactions').select('*').order('occurred_on', {ascending: false}).order('created_at', {ascending: false}).limit(300),
+  ]);
+  if (a.error || g.error || t.error) { toast((a.error || g.error || t.error).message); return; }
+  state.accounts = a.data; state.goals = g.data; state.txs = t.data;
+  renderAll();
+}
+const acctBalance = id => {
+  const a = state.accounts.find(x => x.id === id);
+  if (!a) return 0;
+  let b = Number(a.starting_balance);
+  for (const t of state.txs) if (t.account_id === id) b += (t.kind === 'earning' ? 1 : -1) * Number(t.amount);
+  return b;
+};
+const goalSaved = id => state.txs.filter(t => t.goal_id === id && t.kind === 'saving').reduce((s, t) => s + Number(t.amount), 0);
+
+/* ---------- render ---------- */
+function renderAll() { renderHome(); renderGoals(); renderActivity(); }
+function renderHome() {
+  const total = state.accounts.reduce((s, a) => s + acctBalance(a.id), 0);
+  $('totalBal').textContent = money(total);
+  const month = new Date().toISOString().slice(0, 7);
+  let ein = 0, eout = 0;
+  for (const t of state.txs) {
+    if (!t.occurred_on.startsWith(month)) continue;
+    if (t.kind === 'earning') ein += Number(t.amount);
+    if (t.kind === 'spending') eout += Number(t.amount);
+  }
+  $('totalSub').textContent = `This month: ${money(ein)} in · ${money(eout)} out`;
+
+  $('acctRow').innerHTML = state.accounts.length ? '' : '<div class="empty" style="width:100%">No accounts yet. Add one - like Bank of America, Cash App or Apple Pay - with your current balance.</div>';
+  for (const a of state.accounts) {
+    const bal = acctBalance(a.id);
+    const d = document.createElement('div');
+    d.className = 'acct-card';
+    d.innerHTML = `<div class="icon">${a.icon || '🏦'}</div><div class="name"></div><div class="bal ${bal < 0 ? 'neg' : ''}">${money(bal)}</div>`;
+    d.querySelector('.name').textContent = a.name;
+    d.onclick = () => openAccountSheet(a);
+    $('acctRow').appendChild(d);
+  }
+  const recent = state.txs.slice(0, 5);
+  $('recentTx').innerHTML = recent.length ? '' : '<div class="empty">Nothing logged yet. Tap + to add your first entry.</div>';
+  recent.forEach(t => $('recentTx').appendChild(txRow(t)));
+}
+function renderGoals() {
+  const el = $('goalsList');
+  el.innerHTML = state.goals.length ? '' : '<div class="empty">No goals yet. Make one for something you\'re saving toward - like a new phone or a projector.</div>';
+  for (const g of state.goals) {
+    const saved = goalSaved(g.id), target = Number(g.target);
+    const pct = Math.min(100, target > 0 ? saved / target * 100 : 0);
+    const done = saved >= target;
+    const d = document.createElement('div');
+    d.className = 'goal-card' + (done ? ' done' : '');
+    d.innerHTML = `
+      <div class="g-top">
+        <div class="g-emoji">${g.emoji || '🎯'}</div>
+        <div class="g-mid">
+          <div class="g-name"></div>
+          <div class="g-nums">${money(saved)} of ${money(target)}</div>
+        </div>
+        ${done ? '<div style="font-size:22px">🎉</div>' : '<button class="g-add">+ Add</button>'}
+      </div>
+      <div class="bar"><i style="width:${pct}%"></i></div>
+      <div class="g-foot"><span>${done ? 'Funded!' : pct.toFixed(0) + '% there'}</span><button class="g-del">Delete</button></div>`;
+    d.querySelector('.g-name').textContent = g.name;
+    const add = d.querySelector('.g-add');
+    if (add) add.onclick = () => openEntrySheet('saving', g.id);
+    d.querySelector('.g-del').onclick = async () => {
+      if (!confirm('Delete this goal? Money saved toward it goes back to your accounts.')) return;
+      const { error } = await sb.from('money_goals').delete().eq('id', g.id);
+      if (error) return toast(error.message);
+      toast('Goal deleted'); loadAll();
+    };
+    el.appendChild(d);
+  }
+}
+function renderActivity() {
+  const list = state.filter === 'all' ? state.txs : state.txs.filter(t => t.kind === state.filter);
+  $('allTx').innerHTML = list.length ? '' : '<div class="empty">No entries here yet.</div>';
+  list.forEach(t => $('allTx').appendChild(txRow(t)));
+}
+function txRow(t) {
+  const a = state.accounts.find(x => x.id === t.account_id);
+  const g = state.goals.find(x => x.id === t.goal_id);
+  const icons = { earning: '↓', spending: '↑', saving: '🎯' };
+  const d = document.createElement('div');
+  d.className = 'tx';
+  d.innerHTML = `
+    <div class="bubble ${t.kind}">${icons[t.kind]}</div>
+    <div class="mid">
+      <div class="t1"></div>
+      <div class="t2">${fmtDate(t.occurred_on)} · ${a ? a.name : 'Deleted account'}${g ? ' → ' + g.name : ''} · ${t.category || 'Other'}</div>
+    </div>
+    <div class="amt ${t.kind}">${t.kind === 'earning' ? '+' : '-'}${money(t.amount)}</div>
+    <button class="del" title="Delete">×</button>`;
+  d.querySelector('.t1').textContent = t.note || (t.kind === 'saving' ? 'Saved to goal' : t.category || 'Entry');
+  d.querySelector('.del').onclick = async () => {
+    const { error } = await sb.from('money_transactions').delete().eq('id', t.id);
+    if (error) return toast(error.message);
+    toast('Deleted'); loadAll();
+  };
+  return d;
+}
+
+/* ---------- tabs ---------- */
+document.querySelectorAll('nav.tabs button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('nav.tabs button').forEach(x => x.classList.toggle('active', x === b));
+  ['home', 'goals', 'activity'].forEach(t => $('tab-' + t).classList.toggle('hidden', t !== b.dataset.tab));
+});
+document.querySelectorAll('#filterChips button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('#filterChips button').forEach(x => x.classList.toggle('sel', x === b));
+  state.filter = b.dataset.f; renderActivity();
+});
+
+/* ---------- sheets ---------- */
+function openSheet(html) {
+  const bg = document.createElement('div');
+  bg.className = 'sheet-bg';
+  bg.innerHTML = `<div class="sheet"><div class="grab"></div>${html}</div>`;
+  bg.addEventListener('click', e => { if (e.target === bg) bg.remove(); });
+  $('sheetRoot').appendChild(bg);
+  return bg;
+}
+const CATS = {
+  earning: ['Allowance', 'Gift', 'Work', 'Sale', 'Other'],
+  spending: ['Food', 'Games', 'Shopping', 'Subscriptions', 'Other'],
+  saving: ['Goal deposit'],
+};
+function openEntrySheet(kind = 'spending', goalId = null) {
+  if (!state.accounts.length) { toast('Add an account first'); openAccountSheet(); return; }
+  const bg = openSheet(`
+    <h3>Add entry</h3>
+    <div class="seg" id="kindSeg">
+      <button data-k="earning">Earned</button>
+      <button data-k="spending" class="sel">Spent</button>
+      <button data-k="saving">Save to goal</button>
+    </div>
+    <div class="field"><div class="amt-input"><span>$</span><input id="fAmt" type="number" inputmode="decimal" min="0" step="0.01" placeholder="0.00"></div></div>
+    <div class="field"><label>Account</label><select id="fAcct">${state.accounts.map(a => `<option value="${a.id}">${esc(a.name)}</option>`).join('')}</select></div>
+    <div class="field hidden" id="goalField"><label>Goal</label><select id="fGoal">${state.goals.map(g => `<option value="${g.id}">${esc(g.name)}</option>`).join('')}</select></div>
+    <div class="field" id="catField"><label>Category</label><div class="chips" id="catChips"></div></div>
+    <div class="field"><label>Note (optional)</label><input id="fNote" placeholder="What was it?"></div>
+    <div class="field"><label>Date</label><input id="fDate" type="date" value="${today()}"></div>
+    <button class="btn btn-primary" id="fSave">Add</button>
+    <div class="err" id="fErr"></div>`);
+  let curKind = kind, curCat = null;
+  const chipsEl = bg.querySelector('#catChips');
+  function setKind(k) {
+    curKind = k; curCat = null;
+    bg.querySelectorAll('#kindSeg button').forEach(b => b.classList.toggle('sel', b.dataset.k === k));
+    bg.querySelector('#goalField').classList.toggle('hidden', k !== 'saving' || !state.goals.length);
+    chipsEl.innerHTML = '';
+    CATS[k].forEach(c => {
+      const b = document.createElement('button');
+      b.textContent = c;
+      b.onclick = () => { curCat = c; chipsEl.querySelectorAll('button').forEach(x => x.classList.toggle('sel', x === b)); };
+      chipsEl.appendChild(b);
+    });
+  }
+  bg.querySelectorAll('#kindSeg button').forEach(b => b.onclick = () => setKind(b.dataset.k));
+  setKind(kind);
+  if (goalId) bg.querySelector('#fGoal').value = goalId;
+  bg.querySelector('#fAmt').focus();
+  bg.querySelector('#fSave').onclick = async () => {
+    const amt = parseFloat(bg.querySelector('#fAmt').value);
+    if (!amt || amt <= 0) { bg.querySelector('#fErr').textContent = 'Enter an amount'; return; }
+    const row = {
+      account_id: bg.querySelector('#fAcct').value,
+      amount: amt,
+      kind: curKind,
+      category: curKind === 'saving' ? 'Goal deposit' : (curCat || 'Other'),
+      note: bg.querySelector('#fNote').value.trim() || null,
+      occurred_on: bg.querySelector('#fDate').value || today(),
+      goal_id: curKind === 'saving' ? (bg.querySelector('#fGoal').value || null) : null,
+    };
+    const { error } = await sb.from('money_transactions').insert(row);
+    if (error) { bg.querySelector('#fErr').textContent = error.message; return; }
+    bg.remove();
+    toast(curKind === 'earning' ? 'Money in 💪' : curKind === 'saving' ? 'Saved toward your goal 🎯' : 'Logged');
+    loadAll();
+  };
+}
+function openAccountSheet(a = null) {
+  const icons = ['🏦', '💸', '📱', '🍎', '💳', '🐷', '🪙', '💵'];
+  const bg = openSheet(`
+    <h3>${a ? 'Edit account' : 'Add account'}</h3>
+    <div class="field"><label>Name</label><input id="aName" placeholder="Bank of America, Cash App…" value="${a ? esc(a.name) : ''}"></div>
+    <div class="field"><label>Icon</label><div class="chips" id="aIcons">${icons.map((i, x) => `<button data-i="${i}" class="${a && a.icon === i || (!a && x === 0) ? 'sel' : ''}">${i}</button>`).join('')}</div></div>
+    <div class="field"><label>${a ? 'Starting balance' : 'Current balance'}</label><div class="amt-input"><span>$</span><input id="aBal" type="number" inputmode="decimal" step="0.01" value="${a ? Number(a.starting_balance) : ''}" placeholder="0.00"></div></div>
+    <button class="btn btn-primary" id="aSave">${a ? 'Save changes' : 'Add account'}</button>
+    ${a ? '<button class="btn" id="aDel" style="color:var(--red); margin-top:6px">Delete account</button>' : ''}
+    <div class="err" id="aErr"></div>`);
+  let icon = a ? a.icon : icons[0];
+  bg.querySelectorAll('#aIcons button').forEach(b => b.onclick = () => {
+    icon = b.dataset.i;
+    bg.querySelectorAll('#aIcons button').forEach(x => x.classList.toggle('sel', x === b));
+  });
+  bg.querySelector('#aSave').onclick = async () => {
+    const name = bg.querySelector('#aName').value.trim();
+    if (!name) { bg.querySelector('#aErr').textContent = 'Give it a name'; return; }
+    const bal = parseFloat(bg.querySelector('#aBal').value) || 0;
+    let error;
+    if (a) ({ error } = await sb.from('money_accounts').update({ name, icon, starting_balance: bal }).eq('id', a.id));
+    else ({ error } = await sb.from('money_accounts').insert({ name, icon, starting_balance: bal, sort_order: state.accounts.length }));
+    if (error) { bg.querySelector('#aErr').textContent = error.message; return; }
+    bg.remove(); toast(a ? 'Account updated' : 'Account added'); loadAll();
+  };
+  if (a) bg.querySelector('#aDel').onclick = async () => {
+    if (!confirm('Delete this account and all its entries?')) return;
+    const { error } = await sb.from('money_accounts').delete().eq('id', a.id);
+    if (error) return toast(error.message);
+    bg.remove(); toast('Account deleted'); loadAll();
+  };
+}
+function openGoalSheet() {
+  const emojis = ['🎯', '📱', '🎮', '🎧', '🖥️', '🚲', '👟', '📷', '🛹', '🎸', '✈️', '🏎️'];
+  const bg = openSheet(`
+    <h3>New savings goal</h3>
+    <div class="field"><label>What are you saving for?</label><input id="gName" placeholder="iPhone Duo, projector…"></div>
+    <div class="field"><label>Emoji</label><div class="chips" id="gEmojis">${emojis.map((e, x) => `<button data-e="${e}" class="${x === 0 ? 'sel' : ''}">${e}</button>`).join('')}</div></div>
+    <div class="field"><label>Target amount</label><div class="amt-input"><span>$</span><input id="gTarget" type="number" inputmode="decimal" min="0" step="0.01" placeholder="0.00"></div></div>
+    <button class="btn btn-primary" id="gSave">Create goal</button>
+    <div class="err" id="gErr"></div>`);
+  let emoji = emojis[0];
+  bg.querySelectorAll('#gEmojis button').forEach(b => b.onclick = () => {
+    emoji = b.dataset.e;
+    bg.querySelectorAll('#gEmojis button').forEach(x => x.classList.toggle('sel', x === b));
+  });
+  bg.querySelector('#gSave').onclick = async () => {
+    const name = bg.querySelector('#gName').value.trim();
+    const target = parseFloat(bg.querySelector('#gTarget').value);
+    if (!name) { bg.querySelector('#gErr').textContent = 'Give it a name'; return; }
+    if (!target || target <= 0) { bg.querySelector('#gErr').textContent = 'Set a target amount'; return; }
+    const { error } = await sb.from('money_goals').insert({ name, emoji, target });
+    if (error) { bg.querySelector('#gErr').textContent = error.message; return; }
+    bg.remove(); toast('Goal created 🎯'); loadAll();
+  };
+}
+function esc(s) { return String(s).replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c])); }
+function toast(msg) {
+  const t = document.createElement('div');
+  t.className = 'toast'; t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 2200);
+}
+
+$('fab').onclick = () => openEntrySheet('spending');
+$('addAcctBtn').onclick = () => openAccountSheet();
+$('addGoalBtn').onclick = () => openGoalSheet();
+
+init();
+</script>
+</body>
+</html>
