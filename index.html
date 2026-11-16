@@ -307,7 +307,7 @@
       <li><b>Category chips</b> at the top of Goals filter which goals you see - tap several at once, or Show all.</li>
       <li><b>The Edit button</b> at the top: turn it ON, then tap an account or goal to change it. With it OFF, tapping just shows the details - no text boxes.</li>
       <li><b>☀️ / 🌙</b> switches between light and dark. <b>?</b> opens or closes this guide.</li>
-      <li>Everything saves automatically and syncs between your phone browser and the app icon.</li>
+      <li>Account, goal and entry records sync. Entry templates are saved only in the browser where you make them.</li>
     </ul>
   </div>
 
@@ -323,6 +323,7 @@
     <div class="section-head"><h2>Subscriptions</h2><button id="addSubBtn">+ Add</button></div>
     <div class="total-note" style="margin-bottom:10px">Manual reminders only. These do not charge money or create transactions.</div><div id="subscriptionSummary"></div><div id="subscriptionList"></div>
     <details style="margin:20px 0;background:var(--card);padding:16px;border:1px solid var(--line);border-radius:16px"><summary style="cursor:pointer;font-weight:700;min-height:32px">Backup &amp; tools</summary><p class="total-note">Download a private copy of your recorded accounts, goals, items, reminders and full transaction history. Keep it somewhere safe. No passwords are included.</p><button id="exportBackupBtn" class="btn" style="margin-top:12px">Download JSON backup</button><p class="total-note" id="exportStatus" role="status"></p></details>
+    <details style="margin:20px 0;background:var(--card);padding:16px;border:1px solid var(--line);border-radius:16px"><summary style="cursor:pointer;font-weight:700;min-height:32px">Entry templates</summary><p class="total-note">Saved only in this browser for this signed-in user, not synced. Templates prefill the Add form. Check the date, account, amount and goals, then confirm each entry yourself. To create one, open + and choose Save as template.</p><div id="templateList"></div></details>
     <div class="section-head"><h2>Recent activity</h2></div>
     <div class="tx-list" id="recentTx"></div>
   </div>
@@ -422,6 +423,7 @@ async function init() {
   });
 }
 function showLogin() {
+  cancelPendingDeletes(); state.user=null;
   $('loginView').classList.remove('hidden');
   $('appView').classList.add('hidden');
   $('tabs').classList.add('hidden'); $('fab').classList.add('hidden');
@@ -506,7 +508,7 @@ const acctMin = a => (a && a.minimum_balance != null) ? Number(a.minimum_balance
 const acctUsable = a => acctBalance(a.id) - (acctMin(a) || 0);
 
 /* ---------- render ---------- */
-function renderAll() { renderSubscriptions(); renderHome(); renderTotal(); renderGoals(); renderIncome(); renderActivity(); renderFx(); }
+function renderAll() { renderSubscriptions(); renderHome(); renderTotal(); renderGoals(); renderIncome(); renderActivity(); renderFx(); renderTemplates(); }
 function renderSubscriptions() {
   const sums = {};
   for (const sub of state.subscriptions) {
@@ -883,10 +885,10 @@ const CATS = {
   spending: ['Food', 'Games', 'Shopping', 'Subscriptions', 'Other'],
   saving: ['Goal deposit'],
 };
-function openEntrySheet(kind = 'spending', goalId = null) {
+function openEntrySheet(kind = 'spending', goalId = null, template = null) {
   if (!state.accounts.length) { toast('Add an account first'); openAccountSheet(); return; }
   const bg = openSheet(`
-    <h3>Add entry</h3>
+    <h3>Add entry</h3><p class="total-note" id="templateNotice"></p>
     <div class="seg" id="kindSeg">
       <button data-k="earning">Earned</button>
       <button data-k="spending" class="sel">Spent</button>
@@ -909,6 +911,7 @@ function openEntrySheet(kind = 'spending', goalId = null) {
     <div class="field"><label>Date</label><input id="fDate" type="date" value="${today()}"></div>
     <button class="btn btn-primary" id="fSave">Add</button>
     <button class="btn btn-cancel" type="button" id="fCancel">Cancel</button>
+    <details style="margin-top:18px"><summary style="cursor:pointer;min-height:44px">Save as template (does not add an entry)</summary><div class="field"><label for="fTemplateName">Template name</label><input id="fTemplateName" maxlength="60" placeholder="Your own name for this entry"></div><button class="btn btn-cancel" type="button" id="fTemplateSave">Save template only</button><p class="total-note" id="fTemplateStatus" role="status"></p></details>
     <div class="err" id="fErr"></div>`);
   let curKind = kind, curCat = null;
   const chipsEl = bg.querySelector('#catChips');
@@ -988,6 +991,27 @@ function openEntrySheet(kind = 'spending', goalId = null) {
   setKind(kind); updCurSym();
   if (goalId) bg.querySelector('#fGoal').value = goalId;
   if (kind !== 'transfer') bg.querySelector('#fAmt').focus();
+  if(template){
+    bg.querySelector('#templateNotice').textContent='Template: '+template.name+'. Review all fields. Date is today. Nothing is recorded until you tap Add or Move it.';
+    bg.querySelector('#fAcct').value=template.account_id;bg.querySelector('#fAmt').value=template.amount??'';
+    bg.querySelector('#fNote').value=template.note||'';bg.querySelector('#fSource').value=template.source||'';
+    if(template.goal_id)bg.querySelector('#fGoal').value=template.goal_id;
+    curCat=template.category||null;chipsEl.querySelectorAll('button').forEach(b=>b.classList.toggle('sel',b.textContent===curCat));
+    bg.querySelector('#roundupOn').checked=!!template.cents; if(template.cents_goal)bg.querySelector('#roundupGoal').value=template.cents_goal;
+    for(const input of bg.querySelectorAll('.paydayPercent'))input.value=template.percent?.[input.dataset.goal]??'';
+    if(kind==='transfer'){bg.querySelector('#destRows').innerHTML='';for(const dest of template.destinations||[]){addDestRow();const row=bg.querySelector('#destRows').lastElementChild;row.querySelector('select').value=dest.target;row.querySelector('input').value=dest.amount??'';}}
+    updCurSym();previewRoundup();previewPayday();updDestTotal();
+  }
+  bg.querySelector('#fTemplateSave').onclick=()=>{
+    const status=bg.querySelector('#fTemplateStatus'),name=bg.querySelector('#fTemplateName').value.trim();
+    if(!name){status.textContent='Give the template a name.';return;}
+    const raw=bg.querySelector('#fAmt').value,amount=raw===''?null:Math.round(Number(raw)*100)/100;
+    if(curKind!=='transfer'&&amount!==null&&(!Number.isFinite(amount)||amount<=0)){status.textContent='Use a positive amount or leave it blank for each time.';return;}
+    const item={id:crypto.randomUUID(),name,kind:curKind,account_id:bg.querySelector('#fAcct').value,amount,category:curCat,source:bg.querySelector('#fSource').value.trim(),note:bg.querySelector('#fNote').value.trim(),goal_id:curKind==='saving'?bg.querySelector('#fGoal').value:null,cents:curKind==='spending'&&bg.querySelector('#roundupOn').checked,cents_goal:bg.querySelector('#roundupGoal').value,percent:Object.fromEntries([...bg.querySelectorAll('.paydayPercent')].map(i=>[i.dataset.goal,i.value])),destinations:curKind==='transfer'?[...bg.querySelectorAll('#destRows .dest-row')].map(r=>({target:r.querySelector('select').value,amount:r.querySelector('input').value})):[]};
+    try{const items=readTemplates();if(items.length>=30)throw new Error('You have 30 templates. Delete one before adding another.');items.push(item);writeTemplates(items);renderTemplates();status.textContent='Template saved in this browser. No entry was added.';bg.querySelector('#fTemplateSave').disabled=true;}
+    catch(e){status.textContent=e.message||'Template could not be saved in this browser.';}
+  };
+
   bg.querySelector('#fSave').onclick = async () => {
     const note = bg.querySelector('#fNote').value.trim() || null;
     const on = bg.querySelector('#fDate').value || today();
@@ -1329,6 +1353,21 @@ const firstEmoji = s => {
 };
 function esc(s) { return String(s).replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c])); }
 function linkify(s) { return esc(s).replace(/(https?:\/\/[^\s<]+|[a-z0-9-]+\.[a-z]{2,}(\/[^\s<]*)?)/gi, m => { const u = /^https?:\/\//i.test(m) ? m : 'https://' + m; return `<a href="${u}" target="_blank" rel="noopener">${m}</a>`; }); }
+function readTemplates(){try{const items=JSON.parse(localStorage.getItem('moneyTemplates:'+state.user?.id)||'[]');return Array.isArray(items)?items:[];}catch(_){return [];}}
+function writeTemplates(items){localStorage.setItem('moneyTemplates:'+state.user.id,JSON.stringify(items));}
+function templateValid(t){
+  if(!state.accounts.some(a=>a.id===t.account_id))return false;
+  const ids=[t.goal_id,t.cents?t.cents_goal:null,...Object.entries(t.percent||{}).filter(([,v])=>Number(v)>0).map(([id])=>id)].filter(Boolean);
+  if(ids.some(id=>!state.goals.some(g=>g.id===id)))return false;
+  return (t.destinations||[]).every(d=>{const [type,id]=d.target.split(':');return(type==='acct'?state.accounts:state.goals).some(x=>x.id===id);});
+}
+function renderTemplates(){
+  const box=$('templateList');if(!box)return;const items=readTemplates();box.innerHTML=items.length?'':'<p class="total-note">No saved templates yet.</p>';
+  for(const t of items){const row=document.createElement('div');row.style.cssText='border-top:1px solid var(--line);padding:12px 0';row.innerHTML=`<b style="display:block;font-size:14px">${esc(t.name)}</b><div class="total-note" style="margin:5px 0">${esc(t.kind)} · ${esc(state.accounts.find(a=>a.id===t.account_id)?.name||'Missing account')} · ${t.kind==='transfer'?'Review destinations':t.amount==null?'Amount each time':esc(moneyC(t.amount,acctCur(state.accounts.find(a=>a.id===t.account_id))))}</div><div style="display:flex;gap:8px"><button class="btn use-template" style="flex:1;min-height:44px">Review &amp; use</button><button class="btn delete-template" style="min-height:44px;color:var(--red)">Delete</button></div>`;
+    row.querySelector('.use-template').onclick=()=>{if(!templateValid(t))return toast('An account or goal is missing. Recreate this template with current choices.');openEntrySheet(t.kind,t.goal_id,t);};
+    row.querySelector('.delete-template').onclick=()=>queueDelete('template:'+t.id,'Template: '+t.name,async()=>{writeTemplates(readTemplates().filter(i=>i.id!==t.id));renderTemplates();return {error:null};});box.append(row);
+  }
+}
 function costPlanHtml(price,shipping,fees,unknownItems=false) {
   const parts=[['Item price',price],['Shipping',shipping],['Extra fees / tax',fees]];
   const valid=v=>v!=null&&Number.isFinite(Number(v))&&Number(v)>=0;
@@ -1385,7 +1424,7 @@ async function exportBackup() {
     const tables=['money_accounts','money_goals','money_goal_items','money_transactions','money_subscriptions'];
     const values=await Promise.all(tables.map(readFullTable));
     if(state.user?.id!==owner)throw new Error('Signed-in account changed. Try again.');
-    const backup={format:'money-tracker-backup',version:1,exported_at:new Date().toISOString(),notes:'Manual records. Amounts keep their original currencies. No exchange conversion. Export only, not an import tool.',tables:Object.fromEntries(tables.map((t,i)=>[t,values[i]]))};
+    const backup={format:'money-tracker-backup',version:1,local_templates:readTemplates(),exported_at:new Date().toISOString(),notes:'Manual records. Amounts keep their original currencies. No exchange conversion. Export only, not an import tool.',tables:Object.fromEntries(tables.map((t,i)=>[t,values[i]]))};
     const blob=new Blob([JSON.stringify(backup,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob);
     const a=document.createElement('a');a.href=url;a.download='money-backup-'+today()+'.json';document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);
     status.textContent='Backup download started: '+values.map((v,i)=>v.length+' '+tables[i].replace('money_','')).join(', ')+'. Check your Downloads or share/save menu.';
@@ -1435,4 +1474,4 @@ $('addGoalBtn').onclick = () => openGoalSheet();
 init();
 </script>
 </body>
-</html>
+  </html>
