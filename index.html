@@ -151,7 +151,8 @@
     width:100%; max-width:560px; max-height:88vh; overflow-y:auto;
     padding:18px 18px calc(24px + env(safe-area-inset-bottom));
   }
-  .sheet .grab{width:40px; height:4px; background:var(--line); border-radius:99px; margin:0 auto 14px}
+  .sheet .grab{width:40px; height:4px; background:var(--line); border-radius:99px; margin:0 auto 14px; position:relative; touch-action:none}
+  .sheet .grab::before{content:''; position:absolute; left:-30px; right:-30px; top:-14px; bottom:-14px}
   .sheet h3{font-size:18px; margin-bottom:14px}
   .seg{display:flex; background:var(--card2); border-radius:12px; padding:4px; margin-bottom:14px}
   .seg button{flex:1; padding:9px; border-radius:9px; color:var(--dim); font-weight:600; font-size:14px}
@@ -180,6 +181,10 @@
   .row2{display:flex; gap:10px}
   .row2>.field{flex:1}
   .sheet .btn{margin-top:8px}
+  .btn-cancel{background:var(--card2); border:1px solid var(--line); color:var(--dim)}
+  .sheet{position:relative}
+  .sheet-x{position:absolute; top:10px; right:12px; width:34px; height:34px; border-radius:50%; background:var(--card2); border:1px solid var(--line); color:var(--dim); font-size:18px; line-height:1}
+  .acct-note{color:var(--dim); font-size:11px; margin-top:6px; line-height:1.4}
   .toast{
     position:fixed; left:50%; transform:translateX(-50%); bottom:calc(96px + env(safe-area-inset-bottom));
     background:#1c2b22; color:var(--accent); border:1px solid var(--accent-dim);
@@ -357,6 +362,8 @@ const acctBalance = id => {
   return b;
 };
 const goalSaved = id => state.txs.filter(t => t.goal_id === id && t.kind === 'saving').reduce((s, t) => s + Number(t.amount), 0);
+const isBofA = a => /bank of america/i.test(String((a && a.name) || ''));
+const BOFA_NOTE = 'Must have a minimum of $100 in account';
 
 /* ---------- render ---------- */
 function renderAll() { renderHome(); renderTotal(); renderGoals(); renderIncome(); renderActivity(); }
@@ -384,7 +391,7 @@ function renderHome() {
     const bal = acctBalance(a.id);
     const d = document.createElement('div');
     d.className = 'acct-card';
-    d.innerHTML = `<div class="icon">${a.icon || '🏦'}</div><div class="name"></div><div class="bal ${bal < 0 ? 'neg' : ''}">${moneyC(bal, acctCur(a))}</div><div class="avail">available${acctCur(a) !== 'USD' ? ' · ' + acctCur(a) : ''}</div>`;
+    d.innerHTML = `<div class="icon">${a.icon || '🏦'}</div><div class="name"></div><div class="bal ${bal < 0 ? 'neg' : ''}">${moneyC(bal, acctCur(a))}</div><div class="avail">available${acctCur(a) !== 'USD' ? ' · ' + acctCur(a) : ''}</div>${isBofA(a) ? `<div class="acct-note">${BOFA_NOTE}</div>` : ''}`;
     d.querySelector('.name').textContent = a.name;
     d.onclick = () => openAccountSheet(a);
     $('acctRow').appendChild(d);
@@ -602,8 +609,19 @@ document.querySelectorAll('#filterChips button').forEach(b => b.onclick = () => 
 function openSheet(html) {
   const bg = document.createElement('div');
   bg.className = 'sheet-bg';
-  bg.innerHTML = `<div class="sheet"><div class="grab"></div>${html}</div>`;
+  bg.innerHTML = `<div class="sheet"><div class="grab"></div><button type="button" class="sheet-x" aria-label="Cancel">×</button>${html}</div>`;
   bg.addEventListener('click', e => { if (e.target === bg) bg.remove(); });
+  bg.querySelector('.sheet-x').onclick = () => bg.remove();
+  const sheetEl = bg.querySelector('.sheet');
+  let sy = 0, sdy = 0, sdrag = false;
+  bg.querySelectorAll('.grab, h3').forEach(z => {
+    z.style.touchAction = 'none';
+    z.addEventListener('pointerdown', e => { sdrag = true; sy = e.clientY; sdy = 0; sheetEl.style.transition = 'none'; try { z.setPointerCapture(e.pointerId); } catch (_) {} });
+    z.addEventListener('pointermove', e => { if (!sdrag) return; sdy = Math.max(0, e.clientY - sy); sheetEl.style.transform = `translateY(${sdy}px)`; });
+    const finish = () => { if (!sdrag) return; sdrag = false; sheetEl.style.transition = 'transform .18s ease'; if (sdy > 100) { sheetEl.style.transform = 'translateY(105%)'; setTimeout(() => bg.remove(), 170); } else { sheetEl.style.transform = ''; } };
+    z.addEventListener('pointerup', finish);
+    z.addEventListener('pointercancel', finish);
+  });
   $('sheetRoot').appendChild(bg);
   return bg;
 }
@@ -635,6 +653,7 @@ function openEntrySheet(kind = 'spending', goalId = null) {
     <div class="field"><label>Note (optional)</label><input id="fNote" placeholder="What was it?"></div>
     <div class="field"><label>Date</label><input id="fDate" type="date" value="${today()}"></div>
     <button class="btn btn-primary" id="fSave">Add</button>
+    <button class="btn btn-cancel" type="button" id="fCancel">Cancel</button>
     <div class="err" id="fErr"></div>`);
   let curKind = kind, curCat = null;
   const chipsEl = bg.querySelector('#catChips');
@@ -683,6 +702,7 @@ function openEntrySheet(kind = 'spending', goalId = null) {
     bg.querySelector('#destTotal').textContent = sum > 0 ? `Total moving: ${moneyC(sum, selCur())}` : '';
   }
   bg.querySelector('#destAdd').onclick = addDestRow;
+  bg.querySelector('#fCancel').onclick = () => bg.remove();
   const selCur = () => acctCur(state.accounts.find(a => a.id === bg.querySelector('#fAcct').value));
   function updCurSym() {
     const s = curSym(selCur());
@@ -757,8 +777,10 @@ function openAccountSheet(a = null) {
     <div class="field"><label>Or type another currency code</label><input id="aCurCustom" placeholder="e.g. CAD, JPY, MXN - overrides the pick above" maxlength="6" value="${a && !curIsPreset ? esc(cur0) : ''}"></div>
     <div class="field"><label>Icon</label><div class="chips" id="aIcons">${icons.map((i, x) => `<button data-i="${i}" class="${a && a.icon === i || (!a && x === 0) ? 'sel' : ''}">${i}</button>`).join('')}</div></div>
     <div class="field"><label>Or type your own emoji</label><input id="aCustom" placeholder="Any emoji - overrides the pick above" value="${a && !icons.includes(a.icon) ? esc(a.icon) : ''}"></div>
-    <div class="field"><label>${a ? 'Starting balance' : 'Current balance'}</label><div class="amt-input"><span id="aBalSym">${curSym(cur0)}</span><input id="aBal" type="number" inputmode="decimal" step="0.01" value="${a ? Number(a.starting_balance) : ''}" placeholder="0.00"></div></div>
+    <div class="field"><label>${a ? 'Total balance' : 'Current balance'}</label><div class="amt-input"><span id="aBalSym">${curSym(cur0)}</span><input id="aBal" type="number" inputmode="decimal" step="0.01" value="${a ? acctBalance(a.id) : ''}" placeholder="0.00"></div></div>
+    ${a && isBofA(a) ? `<div class="acct-note" style="margin:10px 2px 2px">${BOFA_NOTE}</div>` : ''}
     <button class="btn btn-primary" id="aSave">${a ? 'Save changes' : 'Add account'}</button>
+    <button class="btn btn-cancel" type="button" id="aCancel">Cancel</button>
     ${a ? '<button class="btn" id="aDel" style="color:var(--red); margin-top:6px">Delete account</button>' : ''}
     <div class="err" id="aErr"></div>`);
   let icon = a ? a.icon : icons[0];
@@ -778,13 +800,15 @@ function openAccountSheet(a = null) {
     bg.querySelector('#aCustom').value = '';
     bg.querySelectorAll('#aIcons button').forEach(x => x.classList.toggle('sel', x === b));
   });
+  bg.querySelector('#aCancel').onclick = () => bg.remove();
   bg.querySelector('#aCustom').addEventListener('input', () => {
     if (bg.querySelector('#aCustom').value.trim()) bg.querySelectorAll('#aIcons button').forEach(x => x.classList.remove('sel'));
   });
   bg.querySelector('#aSave').onclick = async () => {
     const name = bg.querySelector('#aName').value.trim();
     if (!name) { bg.querySelector('#aErr').textContent = 'Give it a name'; return; }
-    const bal = parseFloat(bg.querySelector('#aBal').value) || 0;
+    let bal = parseFloat(bg.querySelector('#aBal').value) || 0;
+    if (a) bal = bal - (acctBalance(a.id) - Number(a.starting_balance)); // total shown -> starting stored
     const ic = firstEmoji(bg.querySelector('#aCustom').value) || icon;
     const custom = bg.querySelector('#aCurCustom').value.trim().toUpperCase();
     const currency = custom || cur;
@@ -812,6 +836,7 @@ function openGoalSheet(g = null) {
     <div class="field"><label>Or type your own emoji</label><input id="gCustom" placeholder="Any emoji - overrides the pick above" value="${g && !isPreset ? esc(g.emoji) : ''}"></div>
     <div class="field"><label>Target amount</label><div class="amt-input"><span>$</span><input id="gTarget" type="number" inputmode="decimal" min="0" step="0.01" placeholder="0.00" value="${g ? Number(g.target) : ''}"></div></div>
     <button class="btn btn-primary" id="gSave">${g ? 'Save changes' : 'Create goal'}</button>
+    <button class="btn btn-cancel" type="button" id="gCancel">Cancel</button>
     <div class="err" id="gErr"></div>`);
   let emoji = g && isPreset ? g.emoji : emojis[0];
   bg.querySelectorAll('#gEmojis button').forEach(b => b.onclick = () => {
@@ -822,6 +847,7 @@ function openGoalSheet(g = null) {
   bg.querySelector('#gCustom').addEventListener('input', () => {
     if (bg.querySelector('#gCustom').value.trim()) bg.querySelectorAll('#gEmojis button').forEach(x => x.classList.remove('sel'));
   });
+  bg.querySelector('#gCancel').onclick = () => bg.remove();
   bg.querySelector('#gSave').onclick = async () => {
     const name = bg.querySelector('#gName').value.trim();
     const target = parseFloat(bg.querySelector('#gTarget').value);
