@@ -535,7 +535,7 @@ function openSubscription(sub = null) {
     const result=sub?await sb.from('money_subscriptions').update(row).eq('id',sub.id):await sb.from('money_subscriptions').insert(row);
     if(result.error){bg.querySelector('#subErr').textContent=result.error.message;return;} bg.remove(); await loadAll(); toast('Subscription reminder saved');
   };
-  if(sub) bg.querySelector('#subDelete').onclick=async()=>{if(!confirm('Delete this reminder? No transactions will be changed.'))return;const {error}=await sb.from('money_subscriptions').delete().eq('id',sub.id);if(error){bg.querySelector('#subErr').textContent=error.message;return;}bg.remove();await loadAll();};
+  if(sub) bg.querySelector('#subDelete').onclick=async()=>{const btn=bg.querySelector('#subDelete');if(btn.dataset.confirmed!=='yes'){btn.dataset.confirmed='yes';btn.textContent='Tap again to delete reminder';return;}const {error}=await sb.from('money_subscriptions').delete().eq('id',sub.id);if(error){bg.querySelector('#subErr').textContent=error.message;return;}bg.remove();await loadAll();};
 }
 function renderHome() {
   const usdAccts = state.accounts.filter(a => acctCur(a) === 'USD');
